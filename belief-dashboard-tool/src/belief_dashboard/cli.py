@@ -89,6 +89,11 @@ from belief_dashboard.reviews import (
     write_review_report,
 )
 from belief_dashboard.sources import SourceRegistrationError
+from belief_dashboard.source_briefs import (
+    build_source_brief,
+    render_source_brief,
+    write_source_brief_reports,
+)
 from belief_dashboard.study_queue import build_study_queue, render_study_queue, write_study_queue_reports
 from belief_dashboard.utils import resolve_project_path
 from belief_dashboard.workbook import inspect_workbook, write_reports
@@ -508,6 +513,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     study_parser.add_argument("--discord", action="store_true", help="Print compact copy-friendly study priorities.")
     study_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
+    source_brief_parser = subparsers.add_parser("source-brief", help="Create a read-only dossier for one source ID.")
+    source_brief_parser.add_argument("--source-id", required=True, help="Source ID, such as SRC0001.")
+    source_brief_parser.add_argument("--limit", type=int, help="Maximum rows per long section. Defaults to source_briefs.default_limit.")
+    source_brief_parser.add_argument("--include-raw-excerpt", dest="include_raw_excerpt", action="store_true", default=None, help="Include a bounded excerpt from original_file_path.")
+    source_brief_parser.add_argument("--no-raw-excerpt", dest="include_raw_excerpt", action="store_false", help="Do not include a raw source excerpt.")
+    source_brief_parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format. Defaults to markdown.")
+    source_brief_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/source_briefs.")
+    source_brief_parser.add_argument("--short", action="store_true", help="Print a compact source brief.")
+    source_brief_parser.add_argument("--long", action="store_true", help="Print a more detailed source brief.")
+    source_brief_parser.add_argument("--discord", action="store_true", help="Print only the compact Discord source brief.")
+    source_brief_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
     args = parser.parse_args(argv)
 
     if args.command == "inspect-workbook":
@@ -586,6 +603,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _debate_packet_command(args)
     if args.command == "study-queue":
         return _study_queue_command(args)
+    if args.command == "source-brief":
+        return _source_brief_command(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -1378,6 +1397,36 @@ def _study_queue_command(args: argparse.Namespace) -> int:
             base_dir=base_dir,
         )
         markdown_path, json_path = write_study_queue_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _source_brief_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    result = build_source_brief(
+        config,
+        base_dir,
+        source_id=args.source_id,
+        limit=args.limit,
+        include_raw_excerpt=args.include_raw_excerpt,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_source_brief(result, style="discord" if args.discord else "markdown", length=length))
+    if args.save and result["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("source_briefs", {}).get("reports_dir", "reports/source_briefs"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_source_brief_reports(result, reports_dir)
         print(f"Markdown report: {markdown_path}")
         print(f"JSON report: {json_path}")
     return 1 if result["overall_status"] == "fail" else 0

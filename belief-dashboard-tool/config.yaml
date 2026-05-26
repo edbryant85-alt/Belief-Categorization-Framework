@@ -218,6 +218,19 @@ study_queue:
   include_rejected_updates: false
   include_reflection_journal: true
 
+source_briefs:
+  reports_dir: reports/source_briefs
+  default_limit: 25
+  include_claims: true
+  include_criteria: true
+  include_proposals: true
+  include_review_outcomes: true
+  include_approved_impacts: true
+  include_study_items: true
+  include_trace_appendix: true
+  include_raw_excerpt: false
+  raw_excerpt_max_characters: 1500
+
 allowed_values:
   mi5_labels:
     - Remote chance

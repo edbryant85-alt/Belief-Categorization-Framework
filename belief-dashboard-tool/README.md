@@ -1645,3 +1645,42 @@ python -m belief_dashboard.cli study-queue --save
 ```
 
 `debate-summary` summarizes evidence. `debate-packet` prepares a debate packet. `study-queue` asks what to read, clarify, revisit, or reflect on next. Priority scores are deterministic study aids, not belief calculations. Emotional, moral, and existential salience are separated from evidential strength.
+
+## Phase 20 Scope
+
+- Add `source-brief` for a read-only source-level dossier.
+- Gather source metadata, raw file reference, extracted claims, criteria highlights, proposed/approved/rejected/deferred review outcomes, approved hypothesis impacts, source-specific study items, debate-use notes, Discord copy text, and trace IDs.
+- Support markdown, JSON, Discord, short/long output, optional bounded raw excerpts, and saved markdown/JSON reports.
+- Keep source briefs read-only: no workbook edits, queue edits, exports, verification, promotion, rollback, API calls, or web dashboard.
+
+## Source Briefs
+
+Generate a source brief:
+
+```bash
+python -m belief_dashboard.cli source-brief --source-id SRC0001
+```
+
+Include a bounded raw excerpt from `original_file_path`:
+
+```bash
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --include-raw-excerpt
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --no-raw-excerpt
+```
+
+Use output styles:
+
+```bash
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --short
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --long
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --discord
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --format json
+```
+
+Save reports under `reports/source_briefs/`:
+
+```bash
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --save
+```
+
+`debate-summary` summarizes approved evidence by hypothesis. `debate-packet` builds a debate-prep packet. `study-queue` prioritizes unresolved study work. `source-brief` starts from one `source_id` and shows everything the queues know about that source. Use the trace appendix to return to `source_id`, `claim_id`, and `proposal_id` rows. The command summarizes queue records and does not change data.

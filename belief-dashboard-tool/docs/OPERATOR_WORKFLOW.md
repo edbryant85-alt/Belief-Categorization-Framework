@@ -210,3 +210,33 @@ python -m belief_dashboard.cli study-queue --save
 Priority scoring combines approved weight with uncertainty, defeater strength, salient criteria scores, low clarity, deferred status, and matching filters. Treat the score as a study aid, not a belief calculation. High emotional, moral, or existential salience is kept separate from evidential strength.
 
 See also `docs/STUDY_QUEUE.md`.
+
+## Source Briefs
+
+Run:
+
+```bash
+python -m belief_dashboard.cli source-brief --source-id SRC0001
+```
+
+Use raw excerpt, compact, detailed, Discord, or JSON output:
+
+```bash
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --include-raw-excerpt
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --short
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --long
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --discord
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --format json
+```
+
+Save reports under `reports/source_briefs/`:
+
+```bash
+python -m belief_dashboard.cli source-brief --source-id SRC0001 --save
+```
+
+`source-brief` differs from `debate-summary`, `debate-packet`, and `study-queue` by starting from one source and gathering all known source-level queue records. It includes source metadata, claims, criteria highlights, review outcomes, approved hypothesis impacts, unresolved study items, debate-use notes, Discord copy text, and a trace appendix.
+
+Use the trace appendix to return to `source_id`, `claim_id`, and `proposal_id` rows. The command summarizes queue records and does not change workbooks, queue CSV files, source files, proposals, approvals, or export tracking fields.
+
+See also `docs/SOURCE_BRIEFS.md`.
