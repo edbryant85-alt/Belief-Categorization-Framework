@@ -281,3 +281,47 @@ python -m belief_dashboard.cli source-map --hypothesis EC --save
 Use the trace appendix to return to `source_id`, `claim_id`, and `proposal_id` rows.
 
 See also `docs/SOURCE_COMPARISONS.md`.
+
+## Evidence Networks
+
+Build broad evidence clusters:
+
+```bash
+python -m belief_dashboard.cli evidence-clusters
+python -m belief_dashboard.cli evidence-clusters --hypothesis EC
+python -m belief_dashboard.cli evidence-clusters --topic "moral realism"
+python -m belief_dashboard.cli evidence-clusters --category "Philosophical argument"
+```
+
+Focus on specific cluster families:
+
+```bash
+python -m belief_dashboard.cli evidence-clusters --cluster-type defeaters
+python -m belief_dashboard.cli evidence-clusters --cluster-type conflicts
+python -m belief_dashboard.cli evidence-clusters --cluster-type salience
+python -m belief_dashboard.cli evidence-clusters --cluster-type uncertainty
+```
+
+Build a source-centered network:
+
+```bash
+python -m belief_dashboard.cli source-network
+python -m belief_dashboard.cli source-network --hypothesis EC
+python -m belief_dashboard.cli source-network --topic "moral realism"
+python -m belief_dashboard.cli source-network --source-id SRC0001
+```
+
+Output and save options:
+
+```bash
+python -m belief_dashboard.cli evidence-clusters --discord
+python -m belief_dashboard.cli source-network --format json
+python -m belief_dashboard.cli evidence-clusters --save
+python -m belief_dashboard.cli source-network --hypothesis EC --save
+```
+
+`source-brief` inspects one source. `source-map` ranks sources for a hypothesis or topic. `evidence-clusters` and `source-network` zoom out to the broader evidence structure. Cluster IDs such as `HYP_EC`, `DEF_EC`, and `UNCERTAINTY_001` are deterministic report aids and are not written to queues.
+
+Apparent conflict detection is heuristic: it flags support/challenge tension on the same hypothesis, not logical contradiction. Source centrality is based on approved rows, hypotheses touched, weight, and uncertainty/defeater/salience signals. Use trace IDs to return to exact queue records.
+
+See also `docs/EVIDENCE_NETWORKS.md`.

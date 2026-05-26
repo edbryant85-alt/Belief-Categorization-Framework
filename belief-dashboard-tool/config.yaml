@@ -243,6 +243,19 @@ source_comparisons:
   high_defeater_threshold: 4
   high_uncertainty_threshold: 4
 
+evidence_networks:
+  reports_dir: reports/evidence_networks
+  default_limit: 25
+  default_min_weight: 0
+  high_salience_threshold: 4
+  high_defeater_threshold: 4
+  high_uncertainty_threshold: 4
+  centrality_min_count: 2
+  include_criteria_highlights: true
+  include_conflict_clusters: true
+  include_study_clusters: true
+  include_trace_appendix: true
+
 allowed_values:
   mi5_labels:
     - Remote chance

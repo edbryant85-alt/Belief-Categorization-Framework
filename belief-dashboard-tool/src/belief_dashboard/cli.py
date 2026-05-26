@@ -45,6 +45,14 @@ from belief_dashboard.doctor import (
     write_doctor_explanation_reports,
     write_doctor_reports,
 )
+from belief_dashboard.evidence_networks import (
+    CLUSTER_TYPES,
+    build_evidence_clusters,
+    build_source_network,
+    render_evidence_clusters,
+    render_source_network,
+    write_evidence_network_reports,
+)
 from belief_dashboard.export_verification import (
     latest_output_workbook,
     verify_workbook_export,
@@ -562,6 +570,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     source_map_parser.add_argument("--discord", action="store_true", help="Print only compact copy-friendly source-map text.")
     source_map_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
+    clusters_parser = subparsers.add_parser("evidence-clusters", help="Group evidence into read-only thematic and structural clusters.")
+    clusters_parser.add_argument("--hypothesis", help="Hypothesis ID, such as EC or N.")
+    clusters_parser.add_argument("--topic", help="Simple text filter over evidence, source, claim, and criteria context.")
+    clusters_parser.add_argument("--category", help="Filter to categories containing this text.")
+    clusters_parser.add_argument("--source-id", help="Filter to one source ID.")
+    clusters_parser.add_argument("--cluster-type", choices=sorted(CLUSTER_TYPES), default="all", help="Cluster family to show. Defaults to all.")
+    clusters_parser.add_argument("--limit", type=int, help="Maximum rows per section. Defaults to evidence_networks.default_limit.")
+    clusters_parser.add_argument("--min-weight", type=float, help="Minimum approved weight to include.")
+    clusters_parser.add_argument("--exported-only", action="store_true", help="Only include approved rows marked exported.")
+    clusters_parser.add_argument("--include-unexported", action="store_true", help="Allow unexported approved rows. This is the default unless --exported-only is supplied.")
+    clusters_parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format. Defaults to markdown.")
+    clusters_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/evidence_networks.")
+    clusters_parser.add_argument("--short", action="store_true", help="Print compact clusters.")
+    clusters_parser.add_argument("--long", action="store_true", help="Print detailed clusters.")
+    clusters_parser.add_argument("--discord", action="store_true", help="Print only compact copy-friendly cluster text.")
+    clusters_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    network_parser = subparsers.add_parser("source-network", help="Create a read-only source-centered evidence network summary.")
+    network_parser.add_argument("--hypothesis", help="Hypothesis ID, such as EC or N.")
+    network_parser.add_argument("--topic", help="Simple text filter over evidence, source, claim, and criteria context.")
+    network_parser.add_argument("--source-id", help="Filter to one source ID.")
+    network_parser.add_argument("--limit", type=int, help="Maximum rows per section. Defaults to evidence_networks.default_limit.")
+    network_parser.add_argument("--min-weight", type=float, help="Minimum approved weight to include.")
+    network_parser.add_argument("--exported-only", action="store_true", help="Only include approved rows marked exported.")
+    network_parser.add_argument("--include-unexported", action="store_true", help="Allow unexported approved rows. This is the default unless --exported-only is supplied.")
+    network_parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format. Defaults to markdown.")
+    network_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/evidence_networks.")
+    network_parser.add_argument("--short", action="store_true", help="Print a compact source network.")
+    network_parser.add_argument("--long", action="store_true", help="Print a detailed source network.")
+    network_parser.add_argument("--discord", action="store_true", help="Print only compact copy-friendly source-network text.")
+    network_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
     args = parser.parse_args(argv)
 
     if args.command == "inspect-workbook":
@@ -646,6 +686,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _compare_sources_command(args)
     if args.command == "source-map":
         return _source_map_command(args)
+    if args.command == "evidence-clusters":
+        return _evidence_clusters_command(args)
+    if args.command == "source-network":
+        return _source_network_command(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -1541,6 +1585,76 @@ def _source_map_command(args: argparse.Namespace) -> int:
             base_dir=base_dir,
         )
         markdown_path, json_path = write_source_comparison_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _evidence_clusters_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    result = build_evidence_clusters(
+        config,
+        base_dir,
+        hypothesis=args.hypothesis,
+        topic=args.topic,
+        category=args.category,
+        source_id=args.source_id,
+        cluster_type=args.cluster_type,
+        limit=args.limit,
+        min_weight=args.min_weight,
+        exported_only=args.exported_only,
+        include_unexported=args.include_unexported,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_evidence_clusters(result, style="discord" if args.discord else "markdown", length=length))
+    if args.save and result["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("evidence_networks", {}).get("reports_dir", "reports/evidence_networks"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_evidence_network_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _source_network_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    result = build_source_network(
+        config,
+        base_dir,
+        hypothesis=args.hypothesis,
+        topic=args.topic,
+        source_id=args.source_id,
+        limit=args.limit,
+        min_weight=args.min_weight,
+        exported_only=args.exported_only,
+        include_unexported=args.include_unexported,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_source_network(result, style="discord" if args.discord else "markdown", length=length))
+    if args.save and result["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("evidence_networks", {}).get("reports_dir", "reports/evidence_networks"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_evidence_network_reports(result, reports_dir)
         print(f"Markdown report: {markdown_path}")
         print(f"JSON report: {json_path}")
     return 1 if result["overall_status"] == "fail" else 0

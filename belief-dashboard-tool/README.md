@@ -1735,3 +1735,52 @@ python -m belief_dashboard.cli source-map --hypothesis EC --save
 ```
 
 `source-brief` inspects one source. `compare-sources` compares selected sources. `source-map` ranks all matching sources for a hypothesis or topic. Conflict detection is heuristic: it flags apparent tension when approved rows from different sources support and challenge the same hypothesis. It does not prove a logical contradiction. Use the trace appendix to return to the exact queue rows behind a comparison.
+
+## Phase 22 Scope
+
+- Add read-only evidence cluster and source network views.
+- Add `evidence-clusters` for grouping records by hypotheses, categories, defeaters, apparent conflicts, salience, uncertainty, and low clarity.
+- Add `source-network` for source-centered centrality, source-to-hypothesis links, source-to-category links, shared hypothesis links, apparent source conflicts, and study priorities.
+- Keep network views read-only: no workbook edits, queue edits, exports, verification, promotion, rollback, API calls, or web dashboard.
+
+## Evidence Networks
+
+Build evidence clusters:
+
+```bash
+python -m belief_dashboard.cli evidence-clusters
+python -m belief_dashboard.cli evidence-clusters --hypothesis EC
+python -m belief_dashboard.cli evidence-clusters --topic "moral realism"
+python -m belief_dashboard.cli evidence-clusters --category "Philosophical argument"
+```
+
+Focus on one cluster family:
+
+```bash
+python -m belief_dashboard.cli evidence-clusters --cluster-type defeaters
+python -m belief_dashboard.cli evidence-clusters --cluster-type conflicts
+python -m belief_dashboard.cli evidence-clusters --cluster-type salience
+python -m belief_dashboard.cli evidence-clusters --cluster-type uncertainty
+```
+
+Build a source network:
+
+```bash
+python -m belief_dashboard.cli source-network
+python -m belief_dashboard.cli source-network --hypothesis EC
+python -m belief_dashboard.cli source-network --topic "moral realism"
+python -m belief_dashboard.cli source-network --source-id SRC0001
+```
+
+Use output styles and save reports:
+
+```bash
+python -m belief_dashboard.cli evidence-clusters --discord
+python -m belief_dashboard.cli source-network --format json
+python -m belief_dashboard.cli evidence-clusters --save
+python -m belief_dashboard.cli source-network --hypothesis EC --save
+```
+
+Cluster IDs are deterministic inside a report, such as `HYP_EC`, `CAT_Philosophical_argument`, `DEF_EC`, `CONFLICT_EC`, `SALIENCE_001`, and `UNCERTAINTY_001`. They are report aids only and are not written back to queues.
+
+`source-brief` inspects one source. `compare-sources` and `source-map` compare or rank sources. `evidence-clusters` and `source-network` summarize broader structure across the evidence base. Conflict detection is heuristic and flags apparent tensions, not proven logical contradictions. Source centrality is based on approved row counts, hypotheses touched, total/maximum weight, and uncertainty/defeater/salience signals.
