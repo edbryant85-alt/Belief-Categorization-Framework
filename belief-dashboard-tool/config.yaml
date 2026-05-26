@@ -1,0 +1,206 @@
+workbook:
+  default_path: data/workbooks/bayesian_belief_dashboard_expanded_9_hypotheses.xlsx
+  expected_sheets:
+    - Dashboard
+    - MI5 Scale
+    - Hypotheses
+    - Evidence Log
+    - Decision Nodes
+    - Reading Tracker
+    - Instructions
+  evidence_log:
+    sheet_name: Evidence Log
+    header_row: 3
+    required_columns:
+      - ID
+      - Date
+      - Evidence / Argument
+      - Category
+      - Source / Book
+      - Weight 0-5
+      - Notes
+  hypotheses:
+    - EC
+    - PC
+    - PT
+    - CT
+    - MT
+    - IS
+    - MS
+    - HC
+    - N
+
+paths:
+  reports_dir: reports/workbook_inspection
+  sample_dir: data/sample
+
+queues:
+  base_dir: data/queues
+  files:
+    source_dossiers: source_dossiers.csv
+    extracted_claims: extracted_claims.csv
+    criteria_matrix: criteria_matrix.csv
+    proposed_updates: proposed_updates.csv
+    approved_updates: approved_updates.csv
+    rejected_updates: rejected_updates.csv
+    deferred_updates: deferred_updates.csv
+    import_log: import_log.csv
+    change_log: change_log.csv
+    reflection_journal: reflection_journal.md
+
+sources:
+  raw_sources_dir: data/raw_sources
+  supported_extensions:
+    - .txt
+    - .md
+    - .csv
+
+prompt_packets:
+  output_dir: reports/prompt_packets
+  max_inline_characters: 12000
+
+manual_imports:
+  input_dir: data/manual_imports
+  reports_dir: reports/manual_imports
+  supported_import_types:
+    - extracted_claims
+    - criteria_matrix
+    - proposed_updates
+
+reviews:
+  reports_dir: reports/reviews
+
+workbook_export:
+  reports_dir: reports/workbook_export_preview
+  final_reports_dir: reports/workbook_exports
+  output_preview_dir: reports/workbook_export_preview
+  backups_dir: data/backups
+  outputs_dir: data/outputs
+  evidence_log_sheet: Evidence Log
+  evidence_log_header_row: 3
+  copy_formulas_down: true
+  mark_exported_updates: false
+  input_columns:
+    ID: ID
+    Date: Date
+    Evidence / Argument: Evidence / Argument
+    Category: Category
+    Source / Book: Source / Book
+    Weight 0-5: Weight 0-5
+    EC MI5: EC MI5
+    PC MI5: PC MI5
+    PT MI5: PT MI5
+    CT MI5: CT MI5
+    MT MI5: MT MI5
+    IS MI5: IS MI5
+    MS MI5: MS MI5
+    HC MI5: HC MI5
+    N MI5: N MI5
+    Notes: Notes
+  formula_column_markers:
+    - Numeric
+    - Factor
+    - Log Factor
+
+export_verification:
+  reports_dir: reports/export_verification
+  outputs_dir: data/outputs
+  evidence_log_sheet: Evidence Log
+  evidence_log_header_row: 3
+  trace_required: true
+  exported_status_label: exported
+
+workbook_promotion:
+  reports_dir: reports/workbook_promotion
+  archive_dir: data/backups/promoted_archives
+  main_workbook_path: data/workbooks/bayesian_belief_dashboard_expanded_9_hypotheses.xlsx
+  require_verification: true
+  accepted_verification_statuses:
+    - pass
+
+workbook_recovery:
+  reports_dir: reports/workbook_recovery
+  archive_dir: data/backups/promoted_archives
+  rollback_archive_dir: data/backups/rollback_archives
+  main_workbook_path: data/workbooks/bayesian_belief_dashboard_expanded_9_hypotheses.xlsx
+
+report_discovery:
+  workbook_exports_dir: reports/workbook_exports
+  export_verification_dir: reports/export_verification
+  workbook_promotion_dir: reports/workbook_promotion
+  workbook_recovery_dir: reports/workbook_recovery
+
+artifact_navigation:
+  reports_dir: reports/artifact_navigation
+  reports:
+    workbook_inspection: reports/workbook_inspection
+    queue_validation: reports/queue_validation
+    prompt_packets: reports/prompt_packets
+    manual_imports: reports/manual_imports
+    reviews: reports/reviews
+    workbook_export_preview: reports/workbook_export_preview
+    workbook_exports: reports/workbook_exports
+    export_verification: reports/export_verification
+    workbook_promotion: reports/workbook_promotion
+    workbook_recovery: reports/workbook_recovery
+  workbooks:
+    main: data/workbooks/bayesian_belief_dashboard_expanded_9_hypotheses.xlsx
+    outputs: data/outputs
+    backups: data/backups
+    promoted_archives: data/backups/promoted_archives
+    rollback_archives: data/backups/rollback_archives
+  default_limit: 10
+
+command_composition:
+  reports_dir: reports/command_guides
+  default_include_dry_run_first: true
+  quote_paths: true
+
+operator_preflight:
+  reports_dir: reports/operator_preflight
+  include_workbook_inspection: true
+  include_queue_validation: true
+  include_queue_summary: true
+  include_artifact_summary: true
+  include_latest_export_preview: true
+  include_latest_export: true
+  include_latest_verification: true
+  include_latest_promotion: true
+  include_latest_recovery: true
+  include_verified_outputs: true
+  include_command_guides: true
+  default_mode: general
+
+product_readiness:
+  reports_dir: reports/product_readiness
+  sample_demo_dir: data/sample/end_to_end_demo
+
+allowed_values:
+  mi5_labels:
+    - Remote chance
+    - Highly unlikely
+    - Unlikely
+    - Roughly even chance
+    - Likely / probable
+    - Highly likely
+    - Almost certain
+  review_statuses:
+    - proposed
+    - approved
+    - rejected
+    - deferred
+  claim_types:
+    - evidence
+    - argument
+    - objection
+    - defeater
+    - counter_defeater
+    - personal_reflection
+    - definition
+    - interpretive_claim
+    - historical_claim
+    - scientific_claim
+    - moral_claim
+    - metaphysical_claim
+    - theological_claim
+    - existential_claim

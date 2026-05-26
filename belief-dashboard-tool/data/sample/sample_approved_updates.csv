@@ -1,0 +1,2 @@
+id,date,evidence_argument,category,source_book,weight_0_5,approved_by,approved_at,notes
+SAMPLE-001,2026-05-25,"Placeholder approved update for testing.",Example,Sample Source,2,Example Reviewer,2026-05-25T00:00:00Z,"Not real data."

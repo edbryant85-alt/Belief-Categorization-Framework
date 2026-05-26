@@ -1,0 +1,2 @@
+claim_id,source_id,claim_text,claim_type,argument_summary,source_context,quoted_excerpt,related_hypotheses,supports_hypotheses,undermines_hypotheses,possible_defeater_for,uncertainty_notes,status
+CLM0001,SRC0001,Explanation scope can matter in theory choice when comparing hypotheses.,argument,A broader explanation may deserve attention if it avoids special exceptions.,Sample paragraph about explanation scope.,Explanation scope can matter when comparing theories.,EC;PC,EC,,,"This is a neutral demo claim, not a real user's belief.",proposed

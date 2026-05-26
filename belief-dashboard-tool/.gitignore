@@ -1,0 +1,31 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Generated inspection outputs
+reports/workbook_inspection/*.md
+reports/workbook_inspection/*.json
+reports/queue_validation/*.md
+reports/queue_validation/*.json
+reports/prompt_packets/*.md
+reports/prompt_packets/*.csv
+reports/manual_imports/*.md
+reports/manual_imports/*.json
+reports/reviews/*.md
+reports/reviews/*.json
+reports/workbook_export_preview/*.md
+reports/workbook_export_preview/*.json
+reports/workbook_export_preview/*.csv
+reports/workbook_exports/*.md
+reports/workbook_exports/*.json
+reports/export_verification/*.md
+reports/export_verification/*.json
+
+# Local Excel temporary files
+~$*.xlsx

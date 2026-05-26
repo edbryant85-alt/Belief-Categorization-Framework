@@ -1,0 +1,2 @@
+proposal_id,claim_id,source_id,evidence_argument,category,source_book,suggested_weight_0_5,EC_MI5,PC_MI5,PT_MI5,CT_MI5,MT_MI5,IS_MI5,MS_MI5,HC_MI5,N_MI5,notes,suggestion_rationale,uncertainty_notes,review_status
+PROP0001,CLM0001,SRC0001,Sample argument: explanation scope can matter in theory choice.,Philosophy demo,Sample Source: Explanation Scope And Theory Choice,3,Likely / probable,Roughly even chance,,,,,,,,"Neutral demo update for end-to-end workflow.",Shows how a reviewed claim can become an Evidence Log-style update.,Weights are illustrative only.,proposed
