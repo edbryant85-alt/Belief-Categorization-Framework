@@ -20,6 +20,9 @@ The tool avoids direct workbook changes until an explicit guarded promotion step
 - Navigate reports, workbooks, archives, and verified output candidates.
 - Compose ready-to-run promotion and rollback commands without executing them.
 - Run operator preflight and product readiness diagnostics.
+- Run doctor diagnostics that explain problems and safe repair commands.
+- Generate read-only debate-prep summaries from approved evidence.
+- Generate printable read-only debate packets with trace appendices.
 - Run an end-to-end demo workflow using non-private sample assets.
 
 ## Quick Start
@@ -58,6 +61,9 @@ Read-only or report-writing checks:
 - `next-safe-commands`
 - `operator-preflight`
 - `product-readiness`
+- `doctor`
+- `debate-summary`
+- `debate-packet`
 
 Queue-writing commands:
 
@@ -96,6 +102,7 @@ python -m belief_dashboard.cli apply-approved-to-workbook
 python -m belief_dashboard.cli find-verified-output
 python -m belief_dashboard.cli compose-promote-command --latest
 python -m belief_dashboard.cli operator-preflight --mode before-promotion
+python -m belief_dashboard.cli doctor --mode before-promotion
 ```
 
 ## Demo Workflow
@@ -114,7 +121,7 @@ Place the real workbook at the configured `workbook.default_path`, then run `pro
 
 ## Safety Model
 
-The main workbook is not modified by inspection, queue validation, source registration, prompt packets, manual imports, proposal review, export preview, artifact navigation, command composition, operator preflight, or product readiness. Approved updates are written to timestamped output workbook copies first. Main workbook replacement happens only through `promote-output-workbook` or `rollback-workbook`.
+The main workbook is not modified by inspection, queue validation, source registration, prompt packets, manual imports, proposal review, export preview, artifact navigation, command composition, operator preflight, product readiness, or doctor diagnostics. Approved updates are written to timestamped output workbook copies first. Main workbook replacement happens only through `promote-output-workbook` or `rollback-workbook`.
 
 Reports are written under `reports/`. Timestamped output workbooks are written under `data/outputs/`. Backups and promoted/rollback archives are written under `data/backups/`. Queue state lives under `data/queues/`.
 
@@ -123,6 +130,9 @@ See also:
 - `docs/OPERATOR_WORKFLOW.md`
 - `docs/SAFETY_MODEL.md`
 - `docs/DEMO_WALKTHROUGH.md`
+- `docs/TROUBLESHOOTING.md`
+- `docs/DEBATE_SUMMARIES.md`
+- `docs/DEBATE_PACKETS.md`
 
 ## Phase 1 Scope
 
@@ -1400,6 +1410,15 @@ Operator preflight reports include:
 - Recommended next commands.
 - Warnings, errors, and a clear note that no high-stakes command was executed.
 
+Doctor reports include:
+
+- Timestamp, mode, overall status, and severity counts.
+- Findings with severity, explanation, why it matters, safe repair command, documentation reference, related path, and `can_auto_fix`.
+- Optional explanation reports for one finding with likely causes, safest next steps, safe commands, verification commands, documentation, and what-not-to-do cautions.
+- Safe repair commands and next safest commands.
+- Documentation references.
+- A clear note that no high-stakes command was executed.
+
 ## Phase 14 Scope
 
 - Add a `product-readiness` command for project-level validation.
@@ -1415,3 +1434,169 @@ python -m belief_dashboard.cli product-readiness --format json --save
 ```
 
 The command writes reports to `reports/product_readiness/` and checks that demo assets exist under `data/sample/end_to_end_demo/`.
+
+## Phase 15 Scope
+
+- Add a read-only `doctor` command for general, before-export, before-verification, before-promotion, and before-rollback troubleshooting.
+- Explain project health issues in plain language and map each issue to the safest repair command or documentation section.
+- Support table output, JSON output, verbose findings, and saved markdown/JSON reports under `reports/doctor/`.
+- Avoid API calls, web dashboards, workbook mutation, queue mutation, export, verification, promotion, rollback, and export tracking changes.
+
+## Running Doctor
+
+General troubleshooting:
+
+```bash
+python -m belief_dashboard.cli doctor
+```
+
+Mode-specific checks:
+
+```bash
+python -m belief_dashboard.cli doctor --mode before-export
+python -m belief_dashboard.cli doctor --mode before-verification
+python -m belief_dashboard.cli doctor --mode before-promotion
+python -m belief_dashboard.cli doctor --mode before-rollback
+```
+
+Structured output and saved reports:
+
+```bash
+python -m belief_dashboard.cli doctor --format json
+python -m belief_dashboard.cli doctor --save
+python -m belief_dashboard.cli doctor --mode before-promotion --format json --save
+```
+
+`product-readiness` checks whether the project is generally ready to use. `operator-preflight` reports the current operational state before a workflow step. `doctor` explains what is wrong, why it matters, and which safe command or documentation page should be used next.
+
+Severity levels:
+
+- `blocker`: stop; a required precondition is missing.
+- `error`: fix before continuing with the relevant workflow.
+- `warning`: review before proceeding.
+- `info`: useful context or a safe next opportunity.
+
+Doctor recommends commands but does not run high-stakes repairs.
+
+## Phase 16 Scope
+
+- Add `doctor --explain FINDING_ID` for guided troubleshooting of one currently detected doctor finding.
+- Support mode-specific explanations, JSON output, and saved markdown/JSON explanation reports.
+- Include likely causes, safest next steps, safe repair commands, verification commands, documentation references, related files, and what-not-to-do cautions.
+- Add concise troubleshooting documentation in `docs/TROUBLESHOOTING.md`.
+- Keep explain mode read-only: no workbook edits, queue edits, exports, verification, promotion, rollback, API calls, or web dashboard.
+
+## Explaining A Finding
+
+Use a finding ID from `doctor` output:
+
+```bash
+python -m belief_dashboard.cli doctor --explain MAIN_WORKBOOK_MISSING
+python -m belief_dashboard.cli doctor --mode before-promotion --explain NO_PASSING_VERIFICATION
+```
+
+Finding IDs are matched case-insensitively, and common uppercase aliases are accepted.
+
+Save explanation reports:
+
+```bash
+python -m belief_dashboard.cli doctor --explain MAIN_WORKBOOK_MISSING --save
+```
+
+This writes:
+
+- `reports/doctor/doctor_explain_MAIN_WORKBOOK_MISSING_YYYY-MM-DD_HHMMSS.md`
+- `reports/doctor/doctor_explain_MAIN_WORKBOOK_MISSING_YYYY-MM-DD_HHMMSS.json`
+
+The “Do not” section lists unsafe or premature actions to avoid, such as exporting while queues fail validation, promoting without passing verification, or manually copying output workbooks over the main workbook.
+
+## Phase 17 Scope
+
+- Add `debate-summary` for read-only debate-prep summaries from approved update rows.
+- Summarize support, challenge, neutral/mixed evidence, defeaters, open questions, salient criteria signals, and trace IDs by hypothesis.
+- Support one-hypothesis and all-hypotheses summaries, JSON output, Discord-friendly output, filters, and saved markdown/JSON reports.
+- Keep debate summaries read-only: no workbook edits, queue edits, exports, verification, promotion, rollback, API calls, or web dashboard.
+
+## Debate Summaries
+
+Summarize one hypothesis:
+
+```bash
+python -m belief_dashboard.cli debate-summary --hypothesis EC
+```
+
+Summarize all configured hypotheses:
+
+```bash
+python -m belief_dashboard.cli debate-summary --all
+```
+
+Use output styles:
+
+```bash
+python -m belief_dashboard.cli debate-summary --hypothesis EC --short
+python -m belief_dashboard.cli debate-summary --hypothesis EC --long
+python -m belief_dashboard.cli debate-summary --hypothesis EC --discord
+```
+
+Filter approved records:
+
+```bash
+python -m belief_dashboard.cli debate-summary --hypothesis EC --min-weight 3
+python -m belief_dashboard.cli debate-summary --hypothesis EC --exported-only
+python -m belief_dashboard.cli debate-summary --hypothesis EC --source-id SRC0001
+python -m belief_dashboard.cli debate-summary --hypothesis EC --category "Philosophical argument"
+```
+
+Save reports under `reports/debate_summaries/`:
+
+```bash
+python -m belief_dashboard.cli debate-summary --hypothesis EC --save
+python -m belief_dashboard.cli debate-summary --all --format json --save
+```
+
+Support/challenge sections are based on the selected hypothesis's MI5 label and approved weight. They are a debate-prep view over approved records, not a final declaration of belief.
+
+## Phase 18 Scope
+
+- Add `debate-packet` for printable, traceable debate prep packets.
+- Combine debate-summary evidence sections with source trace, claim context, objections/defeaters, counter-objections, criteria highlights, open questions, debate framing, Discord copy text, and a trace appendix.
+- Support hypothesis selection, topic filtering, combined filters, JSON output, Discord output, short/long output, and saved markdown/JSON reports.
+- Keep debate packets read-only: no workbook edits, queue edits, exports, verification, promotion, rollback, API calls, or web dashboard.
+
+## Debate Packets
+
+Generate a packet for one hypothesis:
+
+```bash
+python -m belief_dashboard.cli debate-packet --hypothesis EC
+```
+
+Generate a topic-filtered packet:
+
+```bash
+python -m belief_dashboard.cli debate-packet --topic "moral realism"
+```
+
+Combine hypothesis and topic filters:
+
+```bash
+python -m belief_dashboard.cli debate-packet --hypothesis EC --topic "moral realism"
+```
+
+Use output styles:
+
+```bash
+python -m belief_dashboard.cli debate-packet --hypothesis EC --short
+python -m belief_dashboard.cli debate-packet --hypothesis EC --long
+python -m belief_dashboard.cli debate-packet --hypothesis EC --discord
+python -m belief_dashboard.cli debate-packet --hypothesis EC --format json
+```
+
+Save reports under `reports/debate_packets/`:
+
+```bash
+python -m belief_dashboard.cli debate-packet --hypothesis EC --save
+```
+
+`debate-summary` is the concise overview. `debate-packet` is the fuller printable prep packet with source trace, open questions, framing, Discord copy text, and a trace appendix. Use the trace appendix to return to `proposal_id`, `claim_id`, and `source_id` records. The packet summarizes approved records and does not tell you what to believe.

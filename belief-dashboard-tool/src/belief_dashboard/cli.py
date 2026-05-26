@@ -25,7 +25,26 @@ from belief_dashboard.command_guides import (
     write_command_guide_report,
 )
 from belief_dashboard.config import load_config
+from belief_dashboard.debate_packets import (
+    build_debate_packet,
+    render_debate_packet,
+    write_debate_packet_reports,
+)
+from belief_dashboard.debate_summaries import (
+    build_debate_summary,
+    render_debate_summary,
+    write_debate_summary_reports,
+)
 from belief_dashboard.dossiers import DuplicateSourceError, QueueSetupError, register_source
+from belief_dashboard.doctor import (
+    DOCTOR_MODES,
+    build_doctor_explanation,
+    build_doctor_report,
+    render_doctor_explanation,
+    render_doctor_report,
+    write_doctor_explanation_reports,
+    write_doctor_reports,
+)
 from belief_dashboard.export_verification import (
     latest_output_workbook,
     verify_workbook_export,
@@ -430,6 +449,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     product_readiness_parser.add_argument("--save", action="store_true", help="Save markdown and JSON product readiness reports under reports/product_readiness.")
     product_readiness_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
+    doctor_parser = subparsers.add_parser("doctor", help="Explain project health issues and safest repair commands.")
+    doctor_parser.add_argument("--mode", choices=sorted(DOCTOR_MODES), help="Doctor mode. Defaults to doctor.default_mode.")
+    doctor_parser.add_argument("--explain", help="Explain one currently detected doctor finding ID in more detail.")
+    doctor_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format. Defaults to table.")
+    doctor_parser.add_argument("--save", action="store_true", help="Save markdown and JSON doctor reports under reports/doctor.")
+    doctor_parser.add_argument("--verbose", action="store_true", help="Include informational findings in console output.")
+    doctor_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    debate_parser = subparsers.add_parser("debate-summary", help="Summarize approved evidence for debate prep without changing data.")
+    debate_parser.add_argument("--hypothesis", help="Hypothesis ID, such as EC or N.")
+    debate_parser.add_argument("--all", action="store_true", help="Generate summaries for all configured hypotheses.")
+    debate_parser.add_argument("--limit", type=int, help="Maximum items per section. Defaults to debate_summaries.default_limit.")
+    debate_parser.add_argument("--min-weight", type=float, help="Minimum approved weight to include.")
+    debate_parser.add_argument("--exported-only", action="store_true", help="Only include approved rows marked exported.")
+    debate_parser.add_argument("--include-unexported", action="store_true", help="Allow unexported approved rows. This is the default unless --exported-only is supplied.")
+    debate_parser.add_argument("--source-id", help="Filter to one source ID.")
+    debate_parser.add_argument("--category", help="Filter to categories containing this text.")
+    debate_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format. Defaults to table.")
+    debate_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/debate_summaries.")
+    debate_parser.add_argument("--short", action="store_true", help="Print a compact summary.")
+    debate_parser.add_argument("--long", action="store_true", help="Print a more detailed summary.")
+    debate_parser.add_argument("--discord", action="store_true", help="Print compact copy-friendly markdown for Discord.")
+    debate_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    packet_parser = subparsers.add_parser("debate-packet", help="Create a printable read-only debate prep packet.")
+    packet_parser.add_argument("--hypothesis", help="Hypothesis ID, such as EC or N.")
+    packet_parser.add_argument("--topic", help="Simple text filter over evidence, source, and claim context.")
+    packet_parser.add_argument("--limit", type=int, help="Maximum items per section. Defaults to debate_packets.default_limit.")
+    packet_parser.add_argument("--min-weight", type=float, help="Minimum approved weight to include.")
+    packet_parser.add_argument("--exported-only", action="store_true", help="Only include approved rows marked exported.")
+    packet_parser.add_argument("--include-unexported", action="store_true", help="Allow unexported approved rows. This is the default unless --exported-only is supplied.")
+    packet_parser.add_argument("--source-id", help="Filter to one source ID.")
+    packet_parser.add_argument("--category", help="Filter to categories containing this text.")
+    packet_parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format. Defaults to markdown.")
+    packet_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/debate_packets.")
+    packet_parser.add_argument("--discord", action="store_true", help="Print only the compact Discord section.")
+    packet_parser.add_argument("--short", action="store_true", help="Print a compact packet.")
+    packet_parser.add_argument("--long", action="store_true", help="Print a more detailed packet.")
+    packet_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
     args = parser.parse_args(argv)
 
     if args.command == "inspect-workbook":
@@ -500,6 +559,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _next_safe_commands_command(args)
     if args.command == "operator-preflight":
         return _operator_preflight_command(args)
+    if args.command == "doctor":
+        return _doctor_command(args)
+    if args.command == "debate-summary":
+        return _debate_summary_command(args)
+    if args.command == "debate-packet":
+        return _debate_packet_command(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -1145,6 +1210,117 @@ def _product_readiness_command(args: argparse.Namespace) -> int:
         print(f"Markdown report: {markdown_path}")
         print(f"JSON report: {json_path}")
     return 1 if result["overall_status"] == "fail" else 0
+
+
+def _doctor_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    mode = args.mode or config.get("doctor", {}).get("default_mode", "general")
+    if args.explain:
+        explanation = build_doctor_explanation(config, base_dir, args.explain, mode=mode)
+        if args.format == "json":
+            print(json.dumps(explanation, indent=2) + "\n")
+        else:
+            print(render_doctor_explanation(explanation))
+        if args.save:
+            reports_dir = resolve_project_path(
+                config.get("doctor", {}).get("reports_dir", "reports/doctor"),
+                base_dir=base_dir,
+            )
+            markdown_path, json_path = write_doctor_explanation_reports(explanation, reports_dir)
+            print(f"Markdown report: {markdown_path}")
+            print(f"JSON report: {json_path}")
+        return 0 if explanation["status"] == "detected" else 1
+
+    result = build_doctor_report(config, base_dir, mode=mode, verbose=args.verbose)
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_doctor_report(result))
+    if args.save:
+        reports_dir = resolve_project_path(
+            config.get("doctor", {}).get("reports_dir", "reports/doctor"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_doctor_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _debate_summary_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    if not args.hypothesis and not args.all:
+        print("Supply either --hypothesis HYPOTHESIS_ID or --all.")
+        return 1
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    result = build_debate_summary(
+        config,
+        base_dir,
+        hypothesis=args.hypothesis,
+        all_hypotheses=args.all,
+        limit=args.limit,
+        min_weight=args.min_weight,
+        exported_only=args.exported_only,
+        include_unexported=args.include_unexported,
+        source_id=args.source_id,
+        category=args.category,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_debate_summary(result, style="discord" if args.discord else "table", length=length))
+    if args.save and result["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("debate_summaries", {}).get("reports_dir", "reports/debate_summaries"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_debate_summary_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _debate_packet_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    if not args.hypothesis and not args.topic:
+        print('Supply --hypothesis HYPOTHESIS_ID, --topic "topic text", or both.')
+        return 1
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    packet = build_debate_packet(
+        config,
+        base_dir,
+        hypothesis=args.hypothesis,
+        topic=args.topic,
+        limit=args.limit,
+        min_weight=args.min_weight,
+        exported_only=args.exported_only,
+        include_unexported=args.include_unexported,
+        source_id=args.source_id,
+        category=args.category,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(packet, indent=2) + "\n")
+    else:
+        print(render_debate_packet(packet, style="discord" if args.discord else "markdown", length=length))
+    if args.save and packet["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("debate_packets", {}).get("reports_dir", "reports/debate_packets"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_debate_packet_reports(packet, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if packet["overall_status"] == "fail" else 0
 
 
 def _history_paths(config: dict, base_dir: Path) -> dict[str, Path]:

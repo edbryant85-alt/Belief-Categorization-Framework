@@ -175,6 +175,37 @@ product_readiness:
   reports_dir: reports/product_readiness
   sample_demo_dir: data/sample/end_to_end_demo
 
+doctor:
+  reports_dir: reports/doctor
+  include_product_readiness: true
+  include_operator_preflight: true
+  include_workbook_inspection: true
+  include_queue_validation: true
+  include_queue_summary: true
+  include_artifact_summary: true
+  include_next_safe_commands: true
+  default_mode: general
+
+debate_summaries:
+  reports_dir: reports/debate_summaries
+  default_limit: 10
+  default_min_weight: 0
+  include_exported_status: true
+  include_source_titles: true
+  include_claim_context: true
+  include_criteria_scores: true
+
+debate_packets:
+  reports_dir: reports/debate_packets
+  default_limit: 10
+  default_min_weight: 0
+  include_source_dossiers: true
+  include_claim_context: true
+  include_criteria_highlights: true
+  include_objections: true
+  include_counter_objections: true
+  include_discord_section: true
+
 allowed_values:
   mi5_labels:
     - Remote chance

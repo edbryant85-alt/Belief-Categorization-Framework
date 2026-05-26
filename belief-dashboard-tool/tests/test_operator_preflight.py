@@ -64,6 +64,7 @@ def test_operator_preflight_before_promotion_finds_passing_verified_output(tmp_p
     output = tmp_path / "outputs" / "output.xlsx"
     report = tmp_path / "reports" / "export_verification" / "verification.json"
     _write_file(output, b"output")
+    _touch(output, datetime(2026, 5, 26, 11, 0, 0))
     _write_json(report, {"overall_status": "pass", "output_workbook_path": str(output), "verification_timestamp": "2026-05-26T12:00:00"})
 
     result = build_operator_preflight(config, tmp_path, mode="before-promotion")
