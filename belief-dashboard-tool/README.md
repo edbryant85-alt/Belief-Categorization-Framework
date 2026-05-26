@@ -23,6 +23,7 @@ The tool avoids direct workbook changes until an explicit guarded promotion step
 - Run doctor diagnostics that explain problems and safe repair commands.
 - Generate read-only debate-prep summaries from approved evidence.
 - Generate printable read-only debate packets with trace appendices.
+- Generate read-only prioritized study and reflection queues.
 - Run an end-to-end demo workflow using non-private sample assets.
 
 ## Quick Start
@@ -64,6 +65,7 @@ Read-only or report-writing checks:
 - `doctor`
 - `debate-summary`
 - `debate-packet`
+- `study-queue`
 
 Queue-writing commands:
 
@@ -133,6 +135,7 @@ See also:
 - `docs/TROUBLESHOOTING.md`
 - `docs/DEBATE_SUMMARIES.md`
 - `docs/DEBATE_PACKETS.md`
+- `docs/STUDY_QUEUE.md`
 
 ## Phase 1 Scope
 
@@ -1600,3 +1603,45 @@ python -m belief_dashboard.cli debate-packet --hypothesis EC --save
 ```
 
 `debate-summary` is the concise overview. `debate-packet` is the fuller printable prep packet with source trace, open questions, framing, Discord copy text, and a trace appendix. Use the trace appendix to return to `proposal_id`, `claim_id`, and `source_id` records. The packet summarizes approved records and does not tell you what to believe.
+
+## Phase 19 Scope
+
+- Add `study-queue` for read-only study and reflection planning.
+- Prioritize open questions, high uncertainty, high defeater strength, high salience, low clarity, deferred updates, and selected claim-level concerns.
+- Support general, hypothesis, all-hypotheses, topic, source, category, priority, JSON, Discord, short/long, and saved-report workflows.
+- Keep study queues read-only: no workbook edits, queue edits, exports, verification, promotion, rollback, API calls, or web dashboard.
+
+## Study Queue
+
+Generate a general study queue:
+
+```bash
+python -m belief_dashboard.cli study-queue
+```
+
+Filter by hypothesis, topic, source, or category:
+
+```bash
+python -m belief_dashboard.cli study-queue --hypothesis EC
+python -m belief_dashboard.cli study-queue --topic "moral realism"
+python -m belief_dashboard.cli study-queue --source-id SRC0001
+python -m belief_dashboard.cli study-queue --category "Philosophical argument"
+```
+
+Use priority and output options:
+
+```bash
+python -m belief_dashboard.cli study-queue --min-priority 3
+python -m belief_dashboard.cli study-queue --short
+python -m belief_dashboard.cli study-queue --long
+python -m belief_dashboard.cli study-queue --discord
+python -m belief_dashboard.cli study-queue --format json
+```
+
+Save reports under `reports/study_queue/`:
+
+```bash
+python -m belief_dashboard.cli study-queue --save
+```
+
+`debate-summary` summarizes evidence. `debate-packet` prepares a debate packet. `study-queue` asks what to read, clarify, revisit, or reflect on next. Priority scores are deterministic study aids, not belief calculations. Emotional, moral, and existential salience are separated from evidential strength.

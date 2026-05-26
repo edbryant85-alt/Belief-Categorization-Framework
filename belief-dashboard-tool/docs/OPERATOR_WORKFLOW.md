@@ -30,6 +30,8 @@ This tool is a guarded CLI workflow for moving reviewed queue data into timestam
    `python -m belief_dashboard.cli debate-summary --hypothesis EC`
 13. Generate a fuller printable debate packet:
    `python -m belief_dashboard.cli debate-packet --hypothesis EC`
+14. Generate a prioritized study/reflection queue:
+   `python -m belief_dashboard.cli study-queue`
 
 Promotion and rollback remain explicit guarded commands. Command composition and preflight do not execute them.
 
@@ -176,3 +178,35 @@ python -m belief_dashboard.cli debate-packet --hypothesis EC --save
 Use the trace appendix to return to original queue records by `proposal_id`, `claim_id`, and `source_id`. Treat the packet as a summary of approved records, not as a command telling you what to believe.
 
 See also `docs/DEBATE_PACKETS.md`.
+
+## Study Queue
+
+Run:
+
+```bash
+python -m belief_dashboard.cli study-queue
+```
+
+Filter by hypothesis, topic, source, or category:
+
+```bash
+python -m belief_dashboard.cli study-queue --hypothesis EC
+python -m belief_dashboard.cli study-queue --topic "moral realism"
+python -m belief_dashboard.cli study-queue --source-id SRC0001
+python -m belief_dashboard.cli study-queue --category "Philosophical argument"
+```
+
+Output and save options:
+
+```bash
+python -m belief_dashboard.cli study-queue --min-priority 3
+python -m belief_dashboard.cli study-queue --discord
+python -m belief_dashboard.cli study-queue --format json
+python -m belief_dashboard.cli study-queue --save
+```
+
+`study-queue` differs from `debate-summary` and `debate-packet`: it is not trying to present the best case. It prioritizes what to read, clarify, revisit, or reflect on next.
+
+Priority scoring combines approved weight with uncertainty, defeater strength, salient criteria scores, low clarity, deferred status, and matching filters. Treat the score as a study aid, not a belief calculation. High emotional, moral, or existential salience is kept separate from evidential strength.
+
+See also `docs/STUDY_QUEUE.md`.

@@ -206,6 +206,18 @@ debate_packets:
   include_counter_objections: true
   include_discord_section: true
 
+study_queue:
+  reports_dir: reports/study_queue
+  default_limit: 25
+  default_min_priority: 0
+  high_salience_threshold: 4
+  high_uncertainty_threshold: 4
+  high_defeater_threshold: 4
+  low_clarity_threshold: 2
+  include_deferred_updates: true
+  include_rejected_updates: false
+  include_reflection_journal: true
+
 allowed_values:
   mi5_labels:
     - Remote chance

@@ -89,6 +89,7 @@ from belief_dashboard.reviews import (
     write_review_report,
 )
 from belief_dashboard.sources import SourceRegistrationError
+from belief_dashboard.study_queue import build_study_queue, render_study_queue, write_study_queue_reports
 from belief_dashboard.utils import resolve_project_path
 from belief_dashboard.workbook import inspect_workbook, write_reports
 from belief_dashboard.workbook_export import apply_approved_to_workbook, write_workbook_export_report
@@ -489,6 +490,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     packet_parser.add_argument("--long", action="store_true", help="Print a more detailed packet.")
     packet_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
+    study_parser = subparsers.add_parser("study-queue", help="Create a read-only prioritized study and reflection checklist.")
+    study_parser.add_argument("--hypothesis", help="Hypothesis ID, such as EC or N.")
+    study_parser.add_argument("--all", action="store_true", help="Consider all configured hypotheses.")
+    study_parser.add_argument("--topic", help="Simple text filter over evidence, source, claim, and criteria context.")
+    study_parser.add_argument("--limit", type=int, help="Maximum study items to show. Defaults to study_queue.default_limit.")
+    study_parser.add_argument("--min-priority", type=float, help="Minimum priority score to include.")
+    study_parser.add_argument("--source-id", help="Filter to one source ID.")
+    study_parser.add_argument("--category", help="Filter to categories containing this text.")
+    study_parser.add_argument("--include-deferred", action="store_true", help="Include deferred updates as study candidates.")
+    study_parser.add_argument("--include-rejected", action="store_true", help="Include rejected updates for review context.")
+    study_parser.add_argument("--include-reflections", action="store_true", help="Include reflection journal notes if present.")
+    study_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format. Defaults to table.")
+    study_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/study_queue.")
+    study_parser.add_argument("--short", action="store_true", help="Print a compact study queue.")
+    study_parser.add_argument("--long", action="store_true", help="Print a more detailed study queue.")
+    study_parser.add_argument("--discord", action="store_true", help="Print compact copy-friendly study priorities.")
+    study_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
     args = parser.parse_args(argv)
 
     if args.command == "inspect-workbook":
@@ -565,6 +584,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _debate_summary_command(args)
     if args.command == "debate-packet":
         return _debate_packet_command(args)
+    if args.command == "study-queue":
+        return _study_queue_command(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -1321,6 +1342,45 @@ def _debate_packet_command(args: argparse.Namespace) -> int:
         print(f"Markdown report: {markdown_path}")
         print(f"JSON report: {json_path}")
     return 1 if packet["overall_status"] == "fail" else 0
+
+
+def _study_queue_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    include_deferred = True if args.include_deferred else None
+    include_reflections = True if args.include_reflections else None
+    result = build_study_queue(
+        config,
+        base_dir,
+        hypothesis=args.hypothesis,
+        all_hypotheses=args.all,
+        topic=args.topic,
+        limit=args.limit,
+        min_priority=args.min_priority,
+        source_id=args.source_id,
+        category=args.category,
+        include_deferred=include_deferred,
+        include_rejected=args.include_rejected,
+        include_reflections=include_reflections,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_study_queue(result, style="discord" if args.discord else "table", length=length))
+    if args.save and result["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("study_queue", {}).get("reports_dir", "reports/study_queue"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_study_queue_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
 
 
 def _history_paths(config: dict, base_dir: Path) -> dict[str, Path]:
