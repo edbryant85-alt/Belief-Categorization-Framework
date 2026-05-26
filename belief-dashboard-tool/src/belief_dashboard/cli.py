@@ -94,6 +94,13 @@ from belief_dashboard.source_briefs import (
     render_source_brief,
     write_source_brief_reports,
 )
+from belief_dashboard.source_comparisons import (
+    build_source_comparison,
+    build_source_map,
+    render_source_comparison,
+    render_source_map,
+    write_source_comparison_reports,
+)
 from belief_dashboard.study_queue import build_study_queue, render_study_queue, write_study_queue_reports
 from belief_dashboard.utils import resolve_project_path
 from belief_dashboard.workbook import inspect_workbook, write_reports
@@ -525,6 +532,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     source_brief_parser.add_argument("--discord", action="store_true", help="Print only the compact Discord source brief.")
     source_brief_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
+    compare_parser = subparsers.add_parser("compare-sources", help="Compare two or more source dossiers read-only.")
+    compare_parser.add_argument("--source-id", action="append", default=[], help="Source ID to compare. Repeat for multiple sources.")
+    compare_parser.add_argument("--sources", help="Comma-separated source IDs, such as SRC0001,SRC0002.")
+    compare_parser.add_argument("--hypothesis", help="Hypothesis ID, such as EC or N.")
+    compare_parser.add_argument("--topic", help="Simple text filter over evidence, source, claim, and criteria context.")
+    compare_parser.add_argument("--limit", type=int, help="Maximum rows per section. Defaults to source_comparisons.default_limit.")
+    compare_parser.add_argument("--min-weight", type=float, help="Minimum approved weight to include.")
+    compare_parser.add_argument("--exported-only", action="store_true", help="Only include approved rows marked exported.")
+    compare_parser.add_argument("--include-unexported", action="store_true", help="Allow unexported approved rows. This is the default unless --exported-only is supplied.")
+    compare_parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format. Defaults to markdown.")
+    compare_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/source_comparisons.")
+    compare_parser.add_argument("--short", action="store_true", help="Print a compact comparison.")
+    compare_parser.add_argument("--long", action="store_true", help="Print a more detailed comparison.")
+    compare_parser.add_argument("--discord", action="store_true", help="Print only compact copy-friendly comparison text.")
+    compare_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    source_map_parser = subparsers.add_parser("source-map", help="Map sources affecting one hypothesis or topic read-only.")
+    source_map_parser.add_argument("--hypothesis", help="Hypothesis ID, such as EC or N.")
+    source_map_parser.add_argument("--topic", help="Simple text filter over evidence, source, claim, and criteria context.")
+    source_map_parser.add_argument("--limit", type=int, help="Maximum rows per section. Defaults to source_comparisons.default_limit.")
+    source_map_parser.add_argument("--min-weight", type=float, help="Minimum approved weight to include.")
+    source_map_parser.add_argument("--exported-only", action="store_true", help="Only include approved rows marked exported.")
+    source_map_parser.add_argument("--include-unexported", action="store_true", help="Allow unexported approved rows. This is the default unless --exported-only is supplied.")
+    source_map_parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format. Defaults to markdown.")
+    source_map_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/source_comparisons.")
+    source_map_parser.add_argument("--short", action="store_true", help="Print a compact source map.")
+    source_map_parser.add_argument("--long", action="store_true", help="Print a more detailed source map.")
+    source_map_parser.add_argument("--discord", action="store_true", help="Print only compact copy-friendly source-map text.")
+    source_map_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
     args = parser.parse_args(argv)
 
     if args.command == "inspect-workbook":
@@ -605,6 +642,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _study_queue_command(args)
     if args.command == "source-brief":
         return _source_brief_command(args)
+    if args.command == "compare-sources":
+        return _compare_sources_command(args)
+    if args.command == "source-map":
+        return _source_map_command(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -1427,6 +1468,79 @@ def _source_brief_command(args: argparse.Namespace) -> int:
             base_dir=base_dir,
         )
         markdown_path, json_path = write_source_brief_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _compare_sources_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    source_ids = list(args.source_id or [])
+    if args.sources:
+        source_ids.extend(item.strip() for item in args.sources.split(",") if item.strip())
+    result = build_source_comparison(
+        config,
+        base_dir,
+        source_ids=source_ids,
+        hypothesis=args.hypothesis,
+        topic=args.topic,
+        limit=args.limit,
+        min_weight=args.min_weight,
+        exported_only=args.exported_only,
+        include_unexported=args.include_unexported,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_source_comparison(result, style="discord" if args.discord else "markdown", length=length))
+    if args.save and result["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("source_comparisons", {}).get("reports_dir", "reports/source_comparisons"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_source_comparison_reports(result, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _source_map_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    length = "medium"
+    if args.short:
+        length = "short"
+    if args.long:
+        length = "long"
+    if not args.hypothesis and not args.topic:
+        print('Supply --hypothesis HYPOTHESIS_ID, --topic "topic text", or both.')
+        return 1
+    result = build_source_map(
+        config,
+        base_dir,
+        hypothesis=args.hypothesis,
+        topic=args.topic,
+        limit=args.limit,
+        min_weight=args.min_weight,
+        exported_only=args.exported_only,
+        include_unexported=args.include_unexported,
+        length=length,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2) + "\n")
+    else:
+        print(render_source_map(result, style="discord" if args.discord else "markdown", length=length))
+    if args.save and result["overall_status"] != "fail":
+        reports_dir = resolve_project_path(
+            config.get("source_comparisons", {}).get("reports_dir", "reports/source_comparisons"),
+            base_dir=base_dir,
+        )
+        markdown_path, json_path = write_source_comparison_reports(result, reports_dir)
         print(f"Markdown report: {markdown_path}")
         print(f"JSON report: {json_path}")
     return 1 if result["overall_status"] == "fail" else 0

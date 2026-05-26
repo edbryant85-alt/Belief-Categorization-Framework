@@ -1684,3 +1684,54 @@ python -m belief_dashboard.cli source-brief --source-id SRC0001 --save
 ```
 
 `debate-summary` summarizes approved evidence by hypothesis. `debate-packet` builds a debate-prep packet. `study-queue` prioritizes unresolved study work. `source-brief` starts from one `source_id` and shows everything the queues know about that source. Use the trace appendix to return to `source_id`, `claim_id`, and `proposal_id` rows. The command summarizes queue records and does not change data.
+
+## Phase 21 Scope
+
+- Add read-only cross-source comparison briefs.
+- Add `compare-sources` for comparing two or more selected sources.
+- Add `source-map` for ranking all sources affecting a selected hypothesis or topic.
+- Include source metadata, impact summaries, apparent conflict maps, shared themes, objections/defeaters, criteria highlights, study priorities, debate-use notes, Discord copy text, and trace IDs.
+- Keep comparisons read-only: no workbook edits, queue edits, exports, verification, promotion, rollback, API calls, or web dashboard.
+
+## Source Comparisons
+
+Compare two sources:
+
+```bash
+python -m belief_dashboard.cli compare-sources --source-id SRC0001 --source-id SRC0002
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002
+```
+
+Filter the comparison:
+
+```bash
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --hypothesis EC
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --topic "moral realism"
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --min-weight 3
+```
+
+Build a source map:
+
+```bash
+python -m belief_dashboard.cli source-map --hypothesis EC
+python -m belief_dashboard.cli source-map --topic "moral realism"
+python -m belief_dashboard.cli source-map --hypothesis EC --topic "moral realism"
+```
+
+Use output styles:
+
+```bash
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --short
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --long
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --discord
+python -m belief_dashboard.cli source-map --hypothesis EC --format json
+```
+
+Save reports under `reports/source_comparisons/`:
+
+```bash
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --save
+python -m belief_dashboard.cli source-map --hypothesis EC --save
+```
+
+`source-brief` inspects one source. `compare-sources` compares selected sources. `source-map` ranks all matching sources for a hypothesis or topic. Conflict detection is heuristic: it flags apparent tension when approved rows from different sources support and challenge the same hypothesis. It does not prove a logical contradiction. Use the trace appendix to return to the exact queue rows behind a comparison.

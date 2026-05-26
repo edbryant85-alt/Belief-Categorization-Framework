@@ -240,3 +240,44 @@ python -m belief_dashboard.cli source-brief --source-id SRC0001 --save
 Use the trace appendix to return to `source_id`, `claim_id`, and `proposal_id` rows. The command summarizes queue records and does not change workbooks, queue CSV files, source files, proposals, approvals, or export tracking fields.
 
 See also `docs/SOURCE_BRIEFS.md`.
+
+## Source Comparisons
+
+Compare selected sources:
+
+```bash
+python -m belief_dashboard.cli compare-sources --source-id SRC0001 --source-id SRC0002
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002
+```
+
+Map sources affecting a hypothesis or topic:
+
+```bash
+python -m belief_dashboard.cli source-map --hypothesis EC
+python -m belief_dashboard.cli source-map --topic "moral realism"
+python -m belief_dashboard.cli source-map --hypothesis EC --topic "moral realism"
+```
+
+Use filters and output options:
+
+```bash
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --hypothesis EC
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --topic "moral realism"
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --short
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --long
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --discord
+python -m belief_dashboard.cli source-map --hypothesis EC --format json
+```
+
+Save reports under `reports/source_comparisons/`:
+
+```bash
+python -m belief_dashboard.cli compare-sources --sources SRC0001,SRC0002 --save
+python -m belief_dashboard.cli source-map --hypothesis EC --save
+```
+
+`source-brief` inspects one source. `compare-sources` compares selected sources. `source-map` ranks all matching sources for a hypothesis or topic. Conflict detection is heuristic: it flags apparent tension when approved rows from different sources support and challenge the same hypothesis. It does not prove logical contradiction.
+
+Use the trace appendix to return to `source_id`, `claim_id`, and `proposal_id` rows.
+
+See also `docs/SOURCE_COMPARISONS.md`.
