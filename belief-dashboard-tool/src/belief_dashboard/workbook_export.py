@@ -215,13 +215,14 @@ def _write_output_workbook(output_path: Path, preview: dict[str, Any], config: d
         if config["workbook_export"].get("copy_formulas_down", True):
             for header in formula_headers:
                 column = headers[header]
-                source_cell = sheet.cell(row=source_formula_row, column=column)
-                target_cell = sheet.cell(row=target_row, column=column)
-                if isinstance(source_cell.value, str) and source_cell.value.startswith("="):
-                    target_cell.value = Translator(source_cell.value, origin=source_cell.coordinate).translate_formula(target_cell.coordinate)
-                    copied.add(header)
-                else:
+                formula_row = _nearest_formula_row(sheet, column, source_formula_row, int(preview["header_row_used"]) + 1)
+                if formula_row is None:
                     skipped.add(header)
+                    continue
+                source_cell = sheet.cell(row=formula_row, column=column)
+                target_cell = sheet.cell(row=target_row, column=column)
+                target_cell.value = Translator(source_cell.value, origin=source_cell.coordinate).translate_formula(target_cell.coordinate)
+                copied.add(header)
     workbook.save(output_path)
     workbook.close()
     return sorted(copied), sorted(skipped)
@@ -233,6 +234,14 @@ def _headers_by_name(sheet: Any, header_row: int) -> dict[str, int]:
         if cell.value is not None and str(cell.value).strip():
             headers[str(cell.value).strip()] = cell.column
     return headers
+
+
+def _nearest_formula_row(sheet: Any, column: int, start_row: int, min_row: int) -> int | None:
+    for row_number in range(start_row, min_row - 1, -1):
+        value = sheet.cell(row=row_number, column=column).value
+        if isinstance(value, str) and value.startswith("="):
+            return row_number
+    return None
 
 
 def _append_change_log(

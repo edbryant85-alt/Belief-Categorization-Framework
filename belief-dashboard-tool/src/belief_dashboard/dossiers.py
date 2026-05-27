@@ -90,6 +90,47 @@ def find_source_dossier(
     raise SourceRegistrationError(f"Source ID not found in source_dossiers.csv: {source_id}")
 
 
+def find_source_dossiers(
+    queue_dir: str | Path,
+    config: dict[str, Any],
+    *,
+    query: str | None = None,
+    source_id: str | None = None,
+    file_path: str | Path | None = None,
+    limit: int | None = None,
+) -> list[dict[str, str]]:
+    dossiers_path = Path(queue_dir) / config["queues"]["files"]["source_dossiers"]
+    rows = read_source_dossiers(dossiers_path)
+    query_text = (query or "").strip().lower()
+    source_id_text = (source_id or "").strip().lower()
+    file_text = str(file_path or "").strip().lower()
+    matches: list[dict[str, str]] = []
+    for row in rows:
+        if source_id_text and source_id_text not in (row.get("source_id") or "").lower():
+            continue
+        if file_text and file_text not in str(Path(row.get("original_file_path") or "")).lower():
+            continue
+        if query_text:
+            haystack = " ".join(
+                row.get(field, "")
+                for field in [
+                    "source_id",
+                    "title",
+                    "source_type",
+                    "author_or_speaker",
+                    "participants",
+                    "url",
+                    "context",
+                    "short_summary",
+                    "original_file_path",
+                ]
+            ).lower()
+            if query_text not in haystack:
+                continue
+        matches.append(row)
+    return matches[:limit] if limit is not None else matches
+
+
 def next_source_id(rows: list[dict[str, str]]) -> str:
     highest = 0
     for row in rows:

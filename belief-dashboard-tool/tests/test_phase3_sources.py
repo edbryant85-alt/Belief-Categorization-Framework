@@ -8,7 +8,7 @@ import pytest
 
 from belief_dashboard.claims import create_claim_template
 from belief_dashboard.config import load_config
-from belief_dashboard.dossiers import DuplicateSourceError, register_source
+from belief_dashboard.dossiers import DuplicateSourceError, find_source_dossiers, register_source
 from belief_dashboard.prompts import generate_prompt_packet
 from belief_dashboard.queues import init_queues
 from belief_dashboard.schemas import QUEUE_SCHEMAS
@@ -101,6 +101,26 @@ def test_generated_source_ids_increment_correctly(tmp_path: Path) -> None:
     assert second_result["source_id"] == "SRC0002"
 
 
+def test_find_source_dossiers_locates_registered_discord_thread(tmp_path: Path) -> None:
+    config = load_config("config.yaml")
+    queue_dir = tmp_path / "queues"
+    source_path = tmp_path / "are_humans_fundamentally_broken_or_fundamentally_good-page-1.txt"
+    source_path.write_text("Discord thread text.", encoding="utf-8")
+    init_queues(queue_dir, config)
+    register_source(
+        source_path,
+        queue_dir,
+        config,
+        source_type="discord_thread",
+        title="Are Humans Fundamentally Broken or Fundamentally Good? - Page 1",
+    )
+
+    matches = find_source_dossiers(queue_dir, config, query="fundamentally good")
+
+    assert len(matches) == 1
+    assert matches[0]["source_id"] == "SRC0001"
+
+
 def test_claim_template_generation_creates_source_specific_csv_template(tmp_path: Path) -> None:
     config = load_config("config.yaml")
     queue_dir = tmp_path / "queues"
@@ -147,6 +167,22 @@ def test_prompt_packet_generation_creates_markdown_with_required_content(tmp_pat
     assert "extracted_claims.csv-ready rows" in content
     assert "criteria_matrix.csv-ready rows" in content
     assert "proposed_updates.csv-ready rows" in content
+
+
+def test_discord_prompt_packet_includes_speaker_context_guidance(tmp_path: Path) -> None:
+    config = load_config("config.yaml")
+    queue_dir = tmp_path / "queues"
+    output_dir = tmp_path / "prompt_packets"
+    source_path = tmp_path / "discord-thread.txt"
+    source_path.write_text("Alice: humans are good.\nBob: I object.", encoding="utf-8")
+    init_queues(queue_dir, config)
+    register_source(source_path, queue_dir, config, source_type="discord_thread", title="Discord Debate")
+
+    result = generate_prompt_packet("SRC0001", queue_dir, output_dir, config)
+
+    content = Path(result["prompt_packet_path"]).read_text(encoding="utf-8")
+    assert "Discord Thread Context Guidance" in content
+    assert "Attribute claims to the clearest available speaker" in content
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:

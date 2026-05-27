@@ -31,6 +31,18 @@ REQUIRED_FIELDS = {
     ],
 }
 
+CLAIM_TYPE_ALIASES = {
+    "metaphysical": "metaphysical_claim",
+    "moral": "moral_claim",
+    "interpretive": "interpretive_claim",
+    "historical": "historical_claim",
+    "scientific": "scientific_claim",
+    "theological": "theological_claim",
+    "existential": "existential_claim",
+    "counter-defeater": "counter_defeater",
+    "counter defeater": "counter_defeater",
+}
+
 
 def validate_manual_import(
     import_type: str,
@@ -109,6 +121,58 @@ def write_manual_import_report(
     markdown_path.write_text(render_manual_import_report(result), encoding="utf-8")
     json_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return markdown_path, json_path
+
+
+def clean_manual_import(
+    import_type: str,
+    import_file: str | Path,
+    output_file: str | Path,
+    queue_dir: str | Path,
+    config: dict[str, Any],
+    *,
+    cleaned_at: datetime | None = None,
+) -> dict[str, Any]:
+    source_path = Path(import_file)
+    output_path = Path(output_file)
+    result: dict[str, Any] = {
+        "import_type": import_type,
+        "import_file_path": str(source_path),
+        "output_file_path": str(output_path),
+        "cleaned_timestamp": timestamp_iso(cleaned_at),
+        "row_count": 0,
+        "changes": [],
+        "warnings": [],
+        "errors": [],
+        "overall_status": "fail",
+        "next_step_notes": [],
+    }
+    if import_type not in config["manual_imports"]["supported_import_types"]:
+        result["errors"].append(f"Unsupported import type: {import_type}")
+        return _finalize_clean_result(result)
+    if not source_path.exists():
+        result["errors"].append(f"Import file not found: {source_path}")
+        return _finalize_clean_result(result)
+    rows, headers = _read_csv(source_path)
+    if headers != QUEUE_SCHEMAS[import_type]:
+        result["errors"].append(f"Headers do not match expected {import_type} schema or order.")
+        return _finalize_clean_result(result)
+
+    source_titles = _source_titles(Path(queue_dir), config)
+    cleaned_rows = []
+    for row_index, row in enumerate(rows, start=2):
+        cleaned = {header: (row.get(header) or "").strip() for header in headers}
+        if import_type == "extracted_claims":
+            _clean_extracted_claim(cleaned, row_index, result)
+        if import_type == "proposed_updates":
+            _clean_proposed_update(cleaned, row_index, result, source_titles)
+        cleaned_rows.append(cleaned)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(cleaned_rows)
+    result["row_count"] = len(cleaned_rows)
+    return _finalize_clean_result(result)
 
 
 def append_manual_import(
@@ -251,7 +315,10 @@ def _validate_duplicate_ids(
         seen.add(row_id)
         if row_id in existing_ids:
             duplicate_found = True
-            result["errors"].append(f"Row {index}: {id_field} already exists in target queue: {row_id}.")
+            result["errors"].append(
+                f"Row {index}: {id_field} already exists in target queue: {row_id}. "
+                "This is safe: no rows were appended. Remove already-imported rows from the import file or skip this append."
+            )
     result["duplicate_id_status"] = "fail" if duplicate_found else "pass"
 
 
@@ -303,7 +370,10 @@ def _validate_allowed_values(
     for index, row in enumerate(rows, start=2):
         value = (row.get(field) or "").strip()
         if value and value not in allowed:
-            result["errors"].append(f"Row {index}: {field} has invalid value '{value}'.")
+            result["errors"].append(
+                f"Row {index}: {field} has invalid value '{value}'. Allowed values: {', '.join(allowed)}. "
+                "Try clean-import to normalize common manual CSV values into a separate cleaned file."
+            )
 
 
 def _validate_numeric_fields(rows: list[dict[str, str]], fields: list[str], result: dict[str, Any]) -> None:
@@ -360,7 +430,7 @@ def _existing_ids(path: Path, field: str) -> set[str]:
 
 
 def _read_csv(path: Path) -> tuple[list[dict[str, str]], list[str]]:
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         return list(reader), reader.fieldnames or []
 
@@ -380,7 +450,10 @@ def _row_count(path: Path) -> int:
 def _finalize_result(result: dict[str, Any]) -> dict[str, Any]:
     result["overall_status"] = "fail" if result["errors"] else ("warning" if result["warnings"] else "pass")
     if result["errors"]:
-        result["next_step_notes"] = ["Fix validation errors before appending this import."]
+        result["next_step_notes"] = [
+            "Fix validation errors before appending this import.",
+            "For BOMs, extracted status labels, needs_review statuses, multi-label claim_type cells, or blank source_book cells, run clean-import and validate the cleaned copy.",
+        ]
     elif result["warnings"]:
         result["next_step_notes"] = ["Review warnings before appending this import."]
     else:
@@ -394,6 +467,87 @@ def _append_notes(result: dict[str, Any]) -> list[str]:
     if result["dry_run"]:
         return [f"Dry run only. {result['row_count']} rows would be appended."]
     return [f"Appended {result['rows_appended']} rows to the target queue."]
+
+
+def _clean_extracted_claim(row: dict[str, str], row_index: int, result: dict[str, Any]) -> None:
+    if row.get("status") == "extracted":
+        row["status"] = "proposed"
+        result["changes"].append(f"Row {row_index}: status extracted -> proposed.")
+    claim_type = row.get("claim_type", "")
+    if ";" in claim_type:
+        parts = [part.strip().lower().replace(" ", "_") for part in claim_type.split(";") if part.strip()]
+        normalized = [_normalize_claim_type(part) for part in parts]
+        normalized = [value for value in normalized if value]
+        if normalized:
+            original = row["claim_type"]
+            row["claim_type"] = normalized[0]
+            note = f"Original multi-label claim_type: {original}"
+            row["uncertainty_notes"] = f"{row.get('uncertainty_notes', '')}; {note}".strip("; ")
+            result["changes"].append(f"Row {row_index}: claim_type {original} -> {row['claim_type']}.")
+        else:
+            result["warnings"].append(f"Row {row_index}: multi-label claim_type could not be normalized: {claim_type}.")
+
+
+def _clean_proposed_update(
+    row: dict[str, str],
+    row_index: int,
+    result: dict[str, Any],
+    source_titles: dict[str, str],
+) -> None:
+    if row.get("review_status") == "needs_review":
+        row["review_status"] = "proposed"
+        result["changes"].append(f"Row {row_index}: review_status needs_review -> proposed.")
+    if not row.get("source_book"):
+        source_title = source_titles.get(row.get("source_id", ""), "")
+        if source_title:
+            row["source_book"] = source_title
+            result["changes"].append(f"Row {row_index}: blank source_book -> {source_title}.")
+        else:
+            result["warnings"].append(f"Row {row_index}: source_book is blank and no source title was found.")
+
+
+def _normalize_claim_type(value: str) -> str:
+    allowed = {
+        "evidence",
+        "argument",
+        "objection",
+        "defeater",
+        "counter_defeater",
+        "personal_reflection",
+        "definition",
+        "interpretive_claim",
+        "historical_claim",
+        "scientific_claim",
+        "moral_claim",
+        "metaphysical_claim",
+        "theological_claim",
+        "existential_claim",
+    }
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in allowed:
+        return normalized
+    return CLAIM_TYPE_ALIASES.get(value.strip().lower().replace("_", " "), "")
+
+
+def _source_titles(queue_dir: Path, config: dict[str, Any]) -> dict[str, str]:
+    rows, _headers = _read_csv(queue_dir / config["queues"]["files"]["source_dossiers"])
+    return {
+        (row.get("source_id") or "").strip(): (row.get("title") or "").strip()
+        for row in rows
+        if (row.get("source_id") or "").strip()
+    }
+
+
+def _finalize_clean_result(result: dict[str, Any]) -> dict[str, Any]:
+    result["overall_status"] = "fail" if result["errors"] else ("warning" if result["warnings"] else "pass")
+    if result["errors"]:
+        result["next_step_notes"] = ["No cleaned import was written. Fix the errors and rerun clean-import."]
+    else:
+        result["next_step_notes"] = [
+            "Cleaned import written to a separate file.",
+            f"Next: python -m belief_dashboard.cli validate-import --type {result['import_type']} --file {result['output_file_path']}",
+        ]
+    return result
 
 
 def _has_field_errors(result: dict[str, Any], fields: list[str]) -> bool:

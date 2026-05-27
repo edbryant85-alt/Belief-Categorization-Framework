@@ -8,6 +8,20 @@ dist/
 build/
 *.egg-info/
 
+# Local real-source intake and workbook artifacts
+data/queues/*.csv
+!data/queues/.gitkeep
+data/manual_imports/*.csv
+!data/manual_imports/.gitkeep
+data/outputs/*.xlsx
+!data/outputs/.gitkeep
+data/backups/*.xlsx
+!data/backups/.gitkeep
+data/backups/promoted_archives/*.xlsx
+!data/backups/promoted_archives/.gitkeep
+data/backups/rollback_archives/*.xlsx
+!data/backups/rollback_archives/.gitkeep
+
 # Generated inspection outputs
 reports/workbook_inspection/*.md
 reports/workbook_inspection/*.json
@@ -26,6 +40,49 @@ reports/workbook_exports/*.md
 reports/workbook_exports/*.json
 reports/export_verification/*.md
 reports/export_verification/*.json
+reports/workbook_promotion/*.md
+reports/workbook_promotion/*.json
+reports/workbook_recovery/*.md
+reports/workbook_recovery/*.json
+reports/product_readiness/*.md
+reports/product_readiness/*.json
+reports/doctor/*.md
+reports/doctor/*.json
+reports/debate_summaries/*.md
+reports/debate_summaries/*.json
+reports/debate_packets/*.md
+reports/debate_packets/*.json
+reports/study_queue/*.md
+reports/study_queue/*.json
+reports/source_briefs/*.md
+reports/source_briefs/*.json
+reports/source_comparisons/*.md
+reports/source_comparisons/*.json
+reports/evidence_networks/*.md
+reports/evidence_networks/*.json
+reports/command_guides/*.md
+reports/command_guides/*.json
+reports/artifact_navigation/*.md
+reports/artifact_navigation/*.json
+reports/operator_preflight/*.md
+reports/operator_preflight/*.json
+!reports/manual_imports/.gitkeep
+!reports/workbook_exports/.gitkeep
+!reports/workbook_export_preview/.gitkeep
+!reports/export_verification/.gitkeep
+!reports/workbook_promotion/.gitkeep
+!reports/workbook_recovery/.gitkeep
+!reports/product_readiness/.gitkeep
+!reports/doctor/.gitkeep
+!reports/debate_summaries/.gitkeep
+!reports/debate_packets/.gitkeep
+!reports/study_queue/.gitkeep
+!reports/source_briefs/.gitkeep
+!reports/source_comparisons/.gitkeep
+!reports/evidence_networks/.gitkeep
+!reports/command_guides/.gitkeep
+!reports/artifact_navigation/.gitkeep
+!reports/operator_preflight/.gitkeep
 
 # Local Excel temporary files
 ~$*.xlsx

@@ -86,6 +86,41 @@ def test_formula_columns_are_copied_down_where_safe(tmp_path: Path) -> None:
     assert "EC Numeric" in result["formula_driven_columns_copied"]
 
 
+def test_export_appends_after_last_meaningful_row_not_stale_excel_range(tmp_path: Path) -> None:
+    config, queue_dir, workbook_path = _setup_export_fixture(tmp_path, stale_blank_row=251)
+
+    result = apply_approved_to_workbook(
+        workbook_path,
+        queue_dir / "approved_updates.csv",
+        queue_dir,
+        config,
+        backups_dir=tmp_path / "backups",
+        outputs_dir=tmp_path / "outputs",
+    )
+
+    sheet = _output_sheet(result)
+    assert result["first_appended_row"] == 5
+    assert sheet.cell(row=5, column=3).value == "Approved evidence."
+
+
+def test_formula_copy_uses_last_actual_formula_row_before_blank_gap(tmp_path: Path) -> None:
+    config, queue_dir, workbook_path = _setup_export_fixture(tmp_path, formula_row=68, stale_blank_row=251)
+
+    result = apply_approved_to_workbook(
+        workbook_path,
+        queue_dir / "approved_updates.csv",
+        queue_dir,
+        config,
+        backups_dir=tmp_path / "backups",
+        outputs_dir=tmp_path / "outputs",
+    )
+
+    sheet = _output_sheet(result)
+    assert result["first_appended_row"] == 69
+    assert sheet.cell(row=69, column=16).value == "=A69"
+    assert "EC Numeric" in result["formula_driven_columns_copied"]
+
+
 def test_formula_columns_are_not_overwritten_with_queue_values(tmp_path: Path) -> None:
     result = _run_export(tmp_path)
 
@@ -236,12 +271,14 @@ def _setup_export_fixture(
     existing_id: str = "1",
     omit_notes: bool = False,
     extra_approved: bool = False,
+    stale_blank_row: int | None = None,
+    formula_row: int | None = None,
 ) -> tuple[dict, Path, Path]:
     config = load_config("config.yaml")
     queue_dir = tmp_path / "queues"
     init_queues(queue_dir, config)
     workbook_path = tmp_path / "workbook.xlsx"
-    _create_workbook(workbook_path, existing_id=existing_id, omit_notes=omit_notes)
+    _create_workbook(workbook_path, existing_id=existing_id, omit_notes=omit_notes, stale_blank_row=stale_blank_row, formula_row=formula_row)
     _append_queue_row(queue_dir / "source_dossiers.csv", "source_dossiers", {"source_id": "SRC0001"})
     _append_queue_row(queue_dir / "extracted_claims.csv", "extracted_claims", {"claim_id": "C001", "source_id": "SRC0001", "claim_text": "Claim."})
     _append_queue_row(queue_dir / "proposed_updates.csv", "proposed_updates", {"proposal_id": "PROP0001", "claim_id": "C001", "source_id": "SRC0001"})
@@ -254,7 +291,14 @@ def _setup_export_fixture(
     return config, queue_dir, workbook_path
 
 
-def _create_workbook(path: Path, *, existing_id: str, omit_notes: bool) -> None:
+def _create_workbook(
+    path: Path,
+    *,
+    existing_id: str,
+    omit_notes: bool,
+    stale_blank_row: int | None = None,
+    formula_row: int | None = None,
+) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Evidence Log"
@@ -285,6 +329,12 @@ def _create_workbook(path: Path, *, existing_id: str, omit_notes: bool) -> None:
     sheet.cell(row=4, column=1, value=existing_id)
     sheet.cell(row=4, column=3, value="Existing evidence.")
     sheet.cell(row=4, column=16, value="=A4")
+    if formula_row:
+        sheet.cell(row=formula_row, column=1, value=str(int(existing_id) + 1) if str(existing_id).isdigit() else existing_id)
+        sheet.cell(row=formula_row, column=3, value="Last meaningful evidence.")
+        sheet.cell(row=formula_row, column=16, value=f"=A{formula_row}")
+    if stale_blank_row:
+        sheet.row_dimensions[stale_blank_row].height = 15
     workbook.save(path)
 
 

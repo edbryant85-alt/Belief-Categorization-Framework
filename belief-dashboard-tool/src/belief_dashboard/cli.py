@@ -35,7 +35,7 @@ from belief_dashboard.debate_summaries import (
     render_debate_summary,
     write_debate_summary_reports,
 )
-from belief_dashboard.dossiers import DuplicateSourceError, QueueSetupError, register_source
+from belief_dashboard.dossiers import DuplicateSourceError, QueueSetupError, find_source_dossiers, register_source
 from belief_dashboard.doctor import (
     DOCTOR_MODES,
     build_doctor_explanation,
@@ -72,6 +72,7 @@ from belief_dashboard.history import (
 )
 from belief_dashboard.manual_imports import (
     append_manual_import,
+    clean_manual_import,
     queue_summary,
     validate_manual_import,
     write_manual_import_report,
@@ -180,6 +181,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path to config.yaml. Defaults to ./config.yaml.",
     )
 
+    find_source_parser = subparsers.add_parser(
+        "find-source",
+        help="Find registered source IDs by title, path, URL, type, or metadata text.",
+    )
+    find_source_parser.add_argument("query", nargs="?", help="Text to search across source dossier metadata.")
+    find_source_parser.add_argument("--source-id", help="Filter by source ID or partial source ID.")
+    find_source_parser.add_argument("--file", help="Filter by original file path text.")
+    find_source_parser.add_argument("--limit", type=int, default=20, help="Maximum rows to print. Defaults to 20.")
+    find_source_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format. Defaults to table.")
+    find_source_parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to config.yaml. Defaults to ./config.yaml.",
+    )
+
     claim_template_parser = subparsers.add_parser(
         "create-claim-template",
         help="Create a source-specific extracted_claims CSV template.",
@@ -214,6 +230,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     validate_import_parser.add_argument("--type", required=True, help="Import type, such as extracted_claims.")
     validate_import_parser.add_argument("--file", required=True, help="Path to the manual import CSV.")
     validate_import_parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to config.yaml. Defaults to ./config.yaml.",
+    )
+
+    clean_import_parser = subparsers.add_parser(
+        "clean-import",
+        help="Write a cleaned copy of a manual import CSV without changing queue files.",
+    )
+    clean_import_parser.add_argument("--type", required=True, help="Import type, such as extracted_claims.")
+    clean_import_parser.add_argument("--file", required=True, help="Path to the manual import CSV.")
+    clean_import_parser.add_argument("--output", help="Cleaned CSV output path. Defaults to <input>_cleaned.csv.")
+    clean_import_parser.add_argument(
         "--config",
         default="config.yaml",
         help="Path to config.yaml. Defaults to ./config.yaml.",
@@ -284,6 +313,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     list_parser.add_argument("--source-id", help="Filter by source ID.")
     list_parser.add_argument("--limit", type=int, help="Maximum number of proposals to show.")
     list_parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to config.yaml. Defaults to ./config.yaml.",
+    )
+
+    batch_review_parser = subparsers.add_parser(
+        "batch-review-guide",
+        help="Print conservative per-proposal review commands without changing queue files.",
+    )
+    batch_review_parser.add_argument("--source-id", help="Filter to one source ID.")
+    batch_review_parser.add_argument("--status", default="proposed", help="Filter by review_status. Defaults to proposed.")
+    batch_review_parser.add_argument("--action", choices=["approved", "rejected", "deferred"], default="approved", help="Review action to compose. Defaults to approved.")
+    batch_review_parser.add_argument("--reviewer", required=True, help="Reviewer name to include in commands.")
+    batch_review_parser.add_argument("--reason", default="", help="Reason to include for rejected/deferred commands.")
+    batch_review_parser.add_argument("--limit", type=int, help="Maximum commands to print.")
+    batch_review_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format. Defaults to table.")
+    batch_review_parser.add_argument(
         "--config",
         default="config.yaml",
         help="Path to config.yaml. Defaults to ./config.yaml.",
@@ -612,12 +658,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _validate_queues_command(args)
     if args.command == "register-source":
         return _register_source_command(args)
+    if args.command == "find-source":
+        return _find_source_command(args)
     if args.command == "create-claim-template":
         return _create_claim_template_command(args)
     if args.command == "generate-prompt-packet":
         return _generate_prompt_packet_command(args)
     if args.command == "validate-import":
         return _validate_import_command(args)
+    if args.command == "clean-import":
+        return _clean_import_command(args)
     if args.command == "append-import":
         return _append_import_command(args)
     if args.command == "queue-summary":
@@ -630,6 +680,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _review_proposal_command(args, "deferred")
     if args.command == "list-proposals":
         return _list_proposals_command(args)
+    if args.command == "batch-review-guide":
+        return _batch_review_guide_command(args)
     if args.command == "preview-workbook-export":
         return _preview_workbook_export_command(args)
     if args.command == "apply-approved-to-workbook":
@@ -787,6 +839,28 @@ def _register_source_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _find_source_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    try:
+        rows = find_source_dossiers(
+            queue_dir,
+            config,
+            query=args.query,
+            source_id=args.source_id,
+            file_path=args.file,
+            limit=args.limit,
+        )
+    except QueueSetupError as exc:
+        print(f"Could not find sources: {exc}")
+        return 1
+    if args.format == "json":
+        print(json.dumps(rows, indent=2))
+    else:
+        print(_render_sources_table(rows))
+    return 0
+
+
 def _create_claim_template_command(args: argparse.Namespace) -> int:
     _config_path, config, base_dir = _load_command_config(args)
     queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
@@ -845,6 +919,25 @@ def _validate_import_command(args: argparse.Namespace) -> int:
         print(f"Errors: {len(result['errors'])}")
     if result["warnings"]:
         print(f"Warnings: {len(result['warnings'])}")
+    return 1 if result["overall_status"] == "fail" else 0
+
+
+def _clean_import_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    input_path = Path(args.file)
+    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_cleaned{input_path.suffix}")
+    result = clean_manual_import(args.type, input_path, output_path, queue_dir, config)
+    print(f"Clean import status: {result['overall_status']}")
+    print(f"Rows cleaned: {result['row_count']}")
+    print(f"Output file: {result['output_file_path']}")
+    print(f"Changes: {len(result['changes'])}")
+    if result["warnings"]:
+        print(f"Warnings: {len(result['warnings'])}")
+    if result["errors"]:
+        print(f"Errors: {len(result['errors'])}")
+    for note in result["next_step_notes"]:
+        print(note)
     return 1 if result["overall_status"] == "fail" else 0
 
 
@@ -930,6 +1023,30 @@ def _list_proposals_command(args: argparse.Namespace) -> int:
     queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
     rows = list_proposals(queue_dir, config, status=args.status, source_id=args.source_id, limit=args.limit)
     print(render_proposals_table(rows))
+    return 0
+
+
+def _batch_review_guide_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    rows = list_proposals(queue_dir, config, status=args.status, source_id=args.source_id, limit=args.limit)
+    commands = [_review_command_for_row(row, args.action, args.reviewer, args.reason) for row in rows]
+    result = {
+        "operation": "batch_review_guide",
+        "action": args.action,
+        "reviewer": args.reviewer,
+        "source_id": args.source_id or "",
+        "status": args.status or "",
+        "commands": commands,
+        "no_queue_data_modified": True,
+    }
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print("Batch review guide")
+        print("No queue data was modified.")
+        for command in commands:
+            print(command)
     return 0
 
 
@@ -1744,6 +1861,42 @@ def _print_paths(label: str, paths: list[str]) -> None:
     print(f"{label.title()} files:")
     for path in paths:
         print(f"  - {path}")
+
+
+def _render_sources_table(rows: list[dict[str, str]]) -> str:
+    headers = ["source_id", "source_type", "title", "author_or_speaker", "original_file_path"]
+    lines = [" | ".join(headers), " | ".join(["---"] * len(headers))]
+    for row in rows:
+        lines.append(" | ".join(_clip(row.get(header, "")) for header in headers))
+    if not rows:
+        lines.append("No matching sources found. |  |  |  | ")
+    return "\n".join(lines)
+
+
+def _review_command_for_row(row: dict[str, str], action: str, reviewer: str, reason: str) -> str:
+    proposal_id = row.get("proposal_id", "")
+    if action == "approved":
+        return f"python -m belief_dashboard.cli approve-proposal --proposal-id {proposal_id} --reviewer {_quote_arg(reviewer)}"
+    if action == "rejected":
+        return (
+            f"python -m belief_dashboard.cli reject-proposal --proposal-id {proposal_id} "
+            f"--reviewer {_quote_arg(reviewer)} --reason {_quote_arg(reason or 'Add rejection reason')}"
+        )
+    return (
+        f"python -m belief_dashboard.cli defer-proposal --proposal-id {proposal_id} "
+        f"--reviewer {_quote_arg(reviewer)} --reason {_quote_arg(reason or 'Add deferral reason')}"
+    )
+
+
+def _quote_arg(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _clip(value: str, limit: int = 80) -> str:
+    text = " ".join(str(value).split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
 
 
 def _add_review_common_args(parser: argparse.ArgumentParser) -> None:

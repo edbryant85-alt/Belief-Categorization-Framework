@@ -11,9 +11,9 @@ This tool is a guarded CLI workflow for moving reviewed queue data into timestam
 3. Register a source and generate manual review materials:
    `register-source`, `create-claim-template`, `generate-prompt-packet`
 4. Validate and append manual imports:
-   `validate-import`, then `append-import`
+   `validate-import`, optionally `clean-import`, then `append-import`
 5. Review proposals:
-   `list-proposals`, then `approve-proposal`, `reject-proposal`, or `defer-proposal`
+   `list-proposals`, optionally `batch-review-guide`, then `approve-proposal`, `reject-proposal`, or `defer-proposal`
 6. Preview export:
    `python -m belief_dashboard.cli preview-workbook-export`
 7. Dry-run or apply export to a timestamped output copy:
@@ -34,6 +34,38 @@ This tool is a guarded CLI workflow for moving reviewed queue data into timestam
    `python -m belief_dashboard.cli study-queue`
 
 Promotion and rollback remain explicit guarded commands. Command composition and preflight do not execute them.
+
+## Real Source Intake
+
+For a Discord thread, YouTube transcript, or book note source:
+
+```bash
+python -m belief_dashboard.cli register-source --file data/raw_sources/example.txt --source-type discord_thread --title "Example Thread"
+python -m belief_dashboard.cli find-source example
+python -m belief_dashboard.cli generate-prompt-packet --source-id SRC0001
+python -m belief_dashboard.cli validate-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims.csv
+python -m belief_dashboard.cli clean-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims.csv
+python -m belief_dashboard.cli validate-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims_cleaned.csv
+python -m belief_dashboard.cli append-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims_cleaned.csv --dry-run
+python -m belief_dashboard.cli append-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims_cleaned.csv
+```
+
+Repeat validate, clean if needed, dry-run append, and real append for `criteria_matrix` and `proposed_updates`.
+
+`find-source` is read-only and helps recover an existing `SRC####` without re-registering. `generate-prompt-packet` adds Discord speaker-attribution guidance automatically when the source type, title, or file path looks Discord-related.
+
+`clean-import` writes a separate cleaned CSV and does not change queue files. It handles common first-pass CSV issues: UTF-8 BOMs, `status=extracted`, multi-label claim types such as `metaphysical; moral; interpretive`, `review_status=needs_review`, and blank `source_book` values that can be filled from the source dossier title.
+
+If append validation says an ID already exists in the target queue, treat it as a safe stop. No rows were appended. Remove already-imported rows from the manual CSV or skip that append.
+
+For proposal review:
+
+```bash
+python -m belief_dashboard.cli list-proposals --source-id SRC0001 --status proposed
+python -m belief_dashboard.cli batch-review-guide --source-id SRC0001 --reviewer "Your Name"
+```
+
+`batch-review-guide` prints per-proposal commands only. It does not modify queues.
 
 ## Product Readiness
 

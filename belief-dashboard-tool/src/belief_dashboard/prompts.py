@@ -36,6 +36,16 @@ PHILOSOPHICAL_SAFEGUARDS = [
     "Note when a claim affects multiple hypotheses differently.",
 ]
 
+DISCORD_THREAD_GUIDANCE = [
+    "Treat Discord exports as multi-speaker conversation, not as one authorial voice.",
+    "Attribute claims to the clearest available speaker, role, or message context.",
+    "When a reply quotes or paraphrases another person, distinguish the quoted target from the speaker's own claim.",
+    "Preserve local conversational context for objections, concessions, clarifications, and reversals.",
+    "Do not infer a participant's stable worldview from one short message unless the thread itself supports it.",
+    "Split broad back-and-forth exchanges into smaller claims when different speakers or hypotheses are involved.",
+    "Use source_context for speaker, reply target, timestamp, and surrounding-thread notes when available.",
+]
+
 
 def generate_prompt_packet(
     source_id: str,
@@ -140,6 +150,8 @@ def render_prompt_packet(
             "## Philosophical Safeguards",
             *_format_bullets(PHILOSOPHICAL_SAFEGUARDS),
             "",
+            *_discord_guidance_section(dossier),
+            "",
             "## Return Format",
             "Return output in CSV-ready markdown tables matching these project schemas. Do not invent source metadata that is not present; leave uncertain cells blank or note uncertainty where appropriate.",
             "",
@@ -173,3 +185,15 @@ def _format_bullets(items: list[str]) -> list[str]:
 
 def _format_schema(queue_name: str) -> str:
     return ", ".join(QUEUE_SCHEMAS[queue_name])
+
+
+def _discord_guidance_section(dossier: dict[str, str]) -> list[str]:
+    source_type = (dossier.get("source_type") or "").lower()
+    title = (dossier.get("title") or "").lower()
+    path = (dossier.get("original_file_path") or "").lower()
+    if "discord" not in " ".join([source_type, title, path]):
+        return []
+    return [
+        "## Discord Thread Context Guidance",
+        *_format_bullets(DISCORD_THREAD_GUIDANCE),
+    ]

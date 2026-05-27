@@ -113,10 +113,13 @@ def preview_workbook_export(
         }
         formula_columns = _detect_formula_columns(sheet, headers, config)
         result["formula_driven_columns_detected"] = formula_columns
-        populated_count = _count_populated_rows(sheet, int(export_config["evidence_log_header_row"]) + 1)
-        result["existing_populated_evidence_row_count"] = populated_count
-        result["first_planned_append_row"] = int(export_config["evidence_log_header_row"]) + 1 + populated_count
-        id_plan = _plan_ids(sheet, headers, int(export_config["evidence_log_header_row"]) + 1)
+        header_row = int(export_config["evidence_log_header_row"])
+        first_data_row = header_row + 1
+        meaningful = _meaningful_evidence_rows(sheet, headers, first_data_row, config)
+        result["existing_populated_evidence_row_count"] = len(meaningful)
+        last_meaningful_row = max(meaningful) if meaningful else header_row
+        result["first_planned_append_row"] = last_meaningful_row + 1
+        id_plan = _plan_ids(sheet, headers, first_data_row, last_meaningful_row)
         result["id_planning_status"] = id_plan["status"]
         result["warnings"].extend(id_plan["warnings"])
     finally:
@@ -265,12 +268,20 @@ def _read_header_row(sheet: Any, row_number: int) -> list[str]:
     return [str(value).strip() if value is not None else "" for value in values]
 
 
-def _count_populated_rows(sheet: Any, start_row: int) -> int:
-    count = 0
-    for row in sheet.iter_rows(min_row=start_row, values_only=True):
-        if any(value is not None and str(value).strip() for value in row):
-            count += 1
-    return count
+def _meaningful_evidence_rows(sheet: Any, headers: list[str], start_row: int, config: dict[str, Any]) -> list[int]:
+    input_columns = set(config["workbook_export"]["input_columns"].values())
+    meaningful_columns = [
+        index
+        for index, header in enumerate(headers, start=1)
+        if header in input_columns and not any(marker.lower() in header.lower() for marker in config["workbook_export"]["formula_column_markers"])
+    ]
+    if not meaningful_columns:
+        meaningful_columns = list(range(1, len(headers) + 1))
+    rows: list[int] = []
+    for row_number in range(start_row, sheet.max_row + 1):
+        if any(_cell_has_meaningful_value(sheet.cell(row=row_number, column=column).value) for column in meaningful_columns):
+            rows.append(row_number)
+    return rows
 
 
 def _detect_formula_columns(sheet: Any, headers: list[str], config: dict[str, Any]) -> list[str]:
@@ -287,13 +298,20 @@ def _detect_formula_columns(sheet: Any, headers: list[str], config: dict[str, An
     return sorted(detected)
 
 
-def _plan_ids(sheet: Any, headers: list[str], start_row: int) -> dict[str, Any]:
+def _cell_has_meaningful_value(value: Any) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _plan_ids(sheet: Any, headers: list[str], start_row: int, last_row: int | None = None) -> dict[str, Any]:
     if "ID" not in headers:
         return {"status": "missing_id_column", "next_id": None, "warnings": ["ID column not found; planned IDs left blank."]}
     column_index = headers.index("ID") + 1
     ids: list[int] = []
     inconsistent = False
-    for cells in sheet.iter_rows(min_row=start_row, max_row=sheet.max_row, min_col=column_index, max_col=column_index, values_only=True):
+    max_row = last_row if last_row is not None else sheet.max_row
+    if max_row < start_row:
+        return {"status": "numeric_ids_planned", "next_id": 1, "warnings": []}
+    for cells in sheet.iter_rows(min_row=start_row, max_row=max_row, min_col=column_index, max_col=column_index, values_only=True):
         value = cells[0]
         if value is None or str(value).strip() == "":
             continue
