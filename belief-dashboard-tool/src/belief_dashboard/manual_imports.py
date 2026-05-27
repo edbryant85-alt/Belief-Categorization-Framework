@@ -32,15 +32,50 @@ REQUIRED_FIELDS = {
 }
 
 CLAIM_TYPE_ALIASES = {
+    "metaphysical claim": "metaphysical_claim",
     "metaphysical": "metaphysical_claim",
+    "moral claim": "moral_claim",
     "moral": "moral_claim",
+    "social claim": "moral_claim",
+    "social": "moral_claim",
+    "moral social claim": "moral_claim",
+    "moral anthropology claim": "moral_claim",
+    "practical claim": "moral_claim",
+    "practical": "moral_claim",
+    "interpretive claim": "interpretive_claim",
     "interpretive": "interpretive_claim",
+    "metaethical claim": "interpretive_claim",
+    "metaethical": "interpretive_claim",
+    "historical claim": "historical_claim",
     "historical": "historical_claim",
+    "textual claim": "historical_claim",
+    "textual": "historical_claim",
+    "explanatory claim": "historical_claim",
+    "explanatory": "historical_claim",
+    "scientific claim": "scientific_claim",
     "scientific": "scientific_claim",
+    "theological claim": "theological_claim",
     "theological": "theological_claim",
+    "theological anthropology claim": "theological_claim",
+    "existential claim": "existential_claim",
     "existential": "existential_claim",
+    "definition claim": "definition",
+    "objection claim": "objection",
+    "defeater claim": "defeater",
     "counter-defeater": "counter_defeater",
     "counter defeater": "counter_defeater",
+    "counter-defeater claim": "counter_defeater",
+    "counter defeater claim": "counter_defeater",
+}
+
+REVIEW_STATUS_ALIASES = {
+    "needs_review": "proposed",
+    "needs review": "proposed",
+    "pending_manual_review": "proposed",
+    "pending manual review": "proposed",
+    "manual_review": "proposed",
+    "manual review": "proposed",
+    "pending": "proposed",
 }
 
 
@@ -161,8 +196,11 @@ def clean_manual_import(
     cleaned_rows = []
     for row_index, row in enumerate(rows, start=2):
         cleaned = {header: (row.get(header) or "").strip() for header in headers}
+        if import_type == "proposed_updates" and _is_blank_row(cleaned):
+            result["warnings"].append(f"Row {row_index}: skipped blank proposed_updates row.")
+            continue
         if import_type == "extracted_claims":
-            _clean_extracted_claim(cleaned, row_index, result)
+            _clean_extracted_claim(cleaned, row_index, result, config["allowed_values"]["claim_types"])
         if import_type == "proposed_updates":
             _clean_proposed_update(cleaned, row_index, result, source_titles)
         cleaned_rows.append(cleaned)
@@ -469,21 +507,31 @@ def _append_notes(result: dict[str, Any]) -> list[str]:
     return [f"Appended {result['rows_appended']} rows to the target queue."]
 
 
-def _clean_extracted_claim(row: dict[str, str], row_index: int, result: dict[str, Any]) -> None:
+def _clean_extracted_claim(
+    row: dict[str, str],
+    row_index: int,
+    result: dict[str, Any],
+    allowed_claim_types: list[str],
+) -> None:
     if row.get("status") == "extracted":
         row["status"] = "proposed"
         result["changes"].append(f"Row {row_index}: status extracted -> proposed.")
     claim_type = row.get("claim_type", "")
-    if ";" in claim_type:
-        parts = [part.strip().lower().replace(" ", "_") for part in claim_type.split(";") if part.strip()]
-        normalized = [_normalize_claim_type(part) for part in parts]
+    normalized_claim_type = _normalize_claim_type(claim_type, set(allowed_claim_types))
+    if normalized_claim_type and normalized_claim_type != claim_type:
+        row["claim_type"] = normalized_claim_type
+        result["changes"].append(f"Row {row_index}: claim_type {claim_type} -> {row['claim_type']}.")
+    if _has_multiple_claim_type_labels(claim_type):
+        parts = _split_claim_type_labels(claim_type)
+        normalized = [_normalize_claim_type(part, set(allowed_claim_types)) for part in parts]
         normalized = [value for value in normalized if value]
         if normalized:
-            original = row["claim_type"]
+            original = claim_type
             row["claim_type"] = normalized[0]
             note = f"Original multi-label claim_type: {original}"
             row["uncertainty_notes"] = f"{row.get('uncertainty_notes', '')}; {note}".strip("; ")
-            result["changes"].append(f"Row {row_index}: claim_type {original} -> {row['claim_type']}.")
+            if row["claim_type"] != normalized_claim_type:
+                result["changes"].append(f"Row {row_index}: claim_type {original} -> {row['claim_type']}.")
         else:
             result["warnings"].append(f"Row {row_index}: multi-label claim_type could not be normalized: {claim_type}.")
 
@@ -494,9 +542,11 @@ def _clean_proposed_update(
     result: dict[str, Any],
     source_titles: dict[str, str],
 ) -> None:
-    if row.get("review_status") == "needs_review":
-        row["review_status"] = "proposed"
-        result["changes"].append(f"Row {row_index}: review_status needs_review -> proposed.")
+    review_status = row.get("review_status", "")
+    normalized_status = REVIEW_STATUS_ALIASES.get(review_status.strip().lower().replace("-", "_"))
+    if normalized_status:
+        row["review_status"] = normalized_status
+        result["changes"].append(f"Row {row_index}: review_status {review_status} -> {normalized_status}.")
     if not row.get("source_book"):
         source_title = source_titles.get(row.get("source_id", ""), "")
         if source_title:
@@ -506,27 +556,62 @@ def _clean_proposed_update(
             result["warnings"].append(f"Row {row_index}: source_book is blank and no source title was found.")
 
 
-def _normalize_claim_type(value: str) -> str:
-    allowed = {
-        "evidence",
-        "argument",
-        "objection",
-        "defeater",
-        "counter_defeater",
-        "personal_reflection",
-        "definition",
-        "interpretive_claim",
-        "historical_claim",
-        "scientific_claim",
-        "moral_claim",
-        "metaphysical_claim",
-        "theological_claim",
-        "existential_claim",
-    }
-    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+def _normalize_claim_type(value: str, allowed: set[str]) -> str:
+    normalized = _enumish(value)
     if normalized in allowed:
         return normalized
-    return CLAIM_TYPE_ALIASES.get(value.strip().lower().replace("_", " "), "")
+    text = value.strip().lower().replace("_", " ").replace("-", " ")
+    if text in CLAIM_TYPE_ALIASES:
+        return CLAIM_TYPE_ALIASES[text]
+    claimless = text.removesuffix(" claim").strip()
+    if claimless in CLAIM_TYPE_ALIASES:
+        return CLAIM_TYPE_ALIASES[claimless]
+    claimless_enum = _enumish(claimless)
+    if claimless_enum in allowed:
+        return claimless_enum
+    for part in _split_claim_type_labels(value):
+        part_normalized = _normalize_single_claim_type_label(part, allowed)
+        if part_normalized:
+            return part_normalized
+    return ""
+
+
+def _normalize_single_claim_type_label(value: str, allowed: set[str]) -> str:
+    normalized = _enumish(value)
+    if normalized in allowed:
+        return normalized
+    text = value.strip().lower().replace("_", " ").replace("-", " ")
+    if text in CLAIM_TYPE_ALIASES:
+        return CLAIM_TYPE_ALIASES[text]
+    claimless = text.removesuffix(" claim").strip()
+    if claimless in CLAIM_TYPE_ALIASES:
+        return CLAIM_TYPE_ALIASES[claimless]
+    claimless_enum = _enumish(claimless)
+    if claimless_enum in allowed:
+        return claimless_enum
+    return ""
+
+
+def _enumish(value: str) -> str:
+    return " ".join(value.strip().lower().replace("-", " ").replace("_", " ").split()).replace(" ", "_")
+
+
+def _has_multiple_claim_type_labels(value: str) -> bool:
+    return ";" in value or "/" in value
+
+
+def _split_claim_type_labels(value: str) -> list[str]:
+    parts = [value]
+    for separator in (";", "/"):
+        split_parts: list[str] = []
+        for part in parts:
+            split_parts.extend(part.split(separator))
+        parts = split_parts
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _is_blank_row(row: dict[str, str]) -> bool:
+    return not any((value or "").strip() for value in row.values())
 
 
 def _source_titles(queue_dir: Path, config: dict[str, Any]) -> dict[str, str]:

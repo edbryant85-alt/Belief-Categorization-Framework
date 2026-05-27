@@ -260,13 +260,18 @@ def _rows_by_trace(sheet: Any, headers: dict[str, int], start_row: int) -> dict[
     rows: dict[str, dict[str, Any]] = {}
     reverse = {column: header for header, column in headers.items()}
     notes_column = headers["Notes"]
-    for row_number in range(start_row, sheet.max_row + 1):
-        notes = sheet.cell(row=row_number, column=notes_column).value
+    for row_number, cells in enumerate(sheet.iter_rows(min_row=start_row), start=start_row):
+        values_by_column = {
+            column: cell.value
+            for column, cell in enumerate(cells, start=1)
+            if column in reverse or column == notes_column
+        }
+        notes = values_by_column.get(notes_column)
         proposal_id = _trace_value(str(notes or ""), "proposal_id")
         if not proposal_id:
             continue
         values = {
-            header: sheet.cell(row=row_number, column=column).value
+            header: values_by_column.get(column)
             for column, header in reverse.items()
         }
         rows[proposal_id] = {"row_number": row_number, "values": values}
@@ -279,8 +284,12 @@ def _formula_columns(sheet: Any, headers: dict[str, int], config: dict[str, Any]
         header for header in headers if any(marker.lower() in header.lower() for marker in markers)
     }
     for header, column in headers.items():
-        for row_number in range(config["export_verification"]["evidence_log_header_row"] + 1, sheet.max_row + 1):
-            value = sheet.cell(row=row_number, column=column).value
+        for cells in sheet.iter_rows(
+            min_row=config["export_verification"]["evidence_log_header_row"] + 1,
+            min_col=column,
+            max_col=column,
+        ):
+            value = cells[0].value
             if isinstance(value, str) and value.startswith("="):
                 columns.add(header)
                 break

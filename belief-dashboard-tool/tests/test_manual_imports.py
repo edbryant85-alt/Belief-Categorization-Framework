@@ -193,6 +193,36 @@ def test_clean_import_normalizes_src0001_manual_csv_values(tmp_path: Path) -> No
     assert "Original multi-label claim_type" in cleaned_rows[0]["uncertainty_notes"]
 
 
+def test_clean_import_normalizes_human_readable_claim_type_labels(tmp_path: Path) -> None:
+    config, queue_dir = _setup_queue_with_source(tmp_path)
+    claims_path = tmp_path / "SRC0001_extracted_claims.csv"
+    cleaned_claims = tmp_path / "SRC0001_extracted_claims_cleaned.csv"
+    _write_import(
+        claims_path,
+        "extracted_claims",
+        [
+            {"claim_id": "C001", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "metaphysical claim"},
+            {"claim_id": "C002", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "moral/social claim"},
+            {"claim_id": "C003", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "historical/interpretive claim"},
+            {"claim_id": "C004", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "counter-defeater claim"},
+            {"claim_id": "C005", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "practical claim"},
+        ],
+    )
+
+    result = clean_manual_import("extracted_claims", claims_path, cleaned_claims, queue_dir, config)
+    cleaned_rows = _read_rows(cleaned_claims)
+
+    assert result["overall_status"] == "pass"
+    assert [row["claim_type"] for row in cleaned_rows] == [
+        "metaphysical_claim",
+        "moral_claim",
+        "historical_claim",
+        "counter_defeater",
+        "moral_claim",
+    ]
+    assert validate_manual_import("extracted_claims", cleaned_claims, queue_dir, config)["overall_status"] == "pass"
+
+
 def test_clean_import_normalizes_needs_review_and_blank_source_book(tmp_path: Path) -> None:
     config, queue_dir = _setup_queue_with_source(tmp_path)
     _append_queue_row(queue_dir / "extracted_claims.csv", "extracted_claims", {"claim_id": "C001", "source_id": "SRC0001", "claim_text": "A claim."})
@@ -206,6 +236,31 @@ def test_clean_import_normalizes_needs_review_and_blank_source_book(tmp_path: Pa
     assert result["overall_status"] == "pass"
     assert cleaned_rows[0]["review_status"] == "proposed"
     assert cleaned_rows[0]["source_book"] == "Source"
+
+
+def test_clean_import_normalizes_pending_manual_review_and_skips_blank_proposal_rows(tmp_path: Path) -> None:
+    config, queue_dir = _setup_queue_with_source(tmp_path)
+    _append_queue_row(queue_dir / "extracted_claims.csv", "extracted_claims", {"claim_id": "C001", "source_id": "SRC0001", "claim_text": "A claim."})
+    import_path = tmp_path / "SRC0001_proposed_updates.csv"
+    cleaned_path = tmp_path / "SRC0001_proposed_updates_cleaned.csv"
+    _write_import(
+        import_path,
+        "proposed_updates",
+        [
+            _valid_proposal_row({"review_status": "pending_manual_review"}),
+            {},
+            {},
+        ],
+    )
+
+    result = clean_manual_import("proposed_updates", import_path, cleaned_path, queue_dir, config)
+    cleaned_rows = _read_rows(cleaned_path)
+
+    assert result["overall_status"] == "warning"
+    assert len(cleaned_rows) == 1
+    assert cleaned_rows[0]["review_status"] == "proposed"
+    assert any("skipped blank proposed_updates row" in warning for warning in result["warnings"])
+    assert validate_manual_import("proposed_updates", cleaned_path, queue_dir, config)["overall_status"] == "pass"
 
 
 def test_missing_referenced_source_id_fails_validation(tmp_path: Path) -> None:

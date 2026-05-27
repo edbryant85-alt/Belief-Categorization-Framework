@@ -13,6 +13,12 @@ data/queues/*.csv
 !data/queues/.gitkeep
 data/manual_imports/*.csv
 !data/manual_imports/.gitkeep
+data/workbooks/*.xlsx
+!data/workbooks/.gitkeep
+data/raw_sources/*.txt
+data/raw_sources/*.md
+data/raw_sources/*.json
+!data/raw_sources/.gitkeep
 data/outputs/*.xlsx
 !data/outputs/.gitkeep
 data/backups/*.xlsx

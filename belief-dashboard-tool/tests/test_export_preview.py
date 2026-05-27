@@ -8,7 +8,11 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from belief_dashboard.config import load_config
-from belief_dashboard.export_preview import preview_workbook_export, write_export_preview_artifacts
+from belief_dashboard.export_preview import (
+    _meaningful_evidence_rows,
+    preview_workbook_export,
+    write_export_preview_artifacts,
+)
 from belief_dashboard.queues import init_queues
 from belief_dashboard.schemas import QUEUE_SCHEMAS
 
@@ -129,6 +133,29 @@ def test_inconsistent_existing_ids_produce_warnings_and_blank_planned_ids(tmp_pa
     assert result["planned_rows"][0]["planned_evidence_id"] == ""
 
 
+def test_meaningful_evidence_rows_handles_unknown_sheet_max_row() -> None:
+    config = load_config("config.yaml")
+    headers = [
+        "ID",
+        "Date",
+        "Evidence / Argument",
+        "Category",
+        "Source / Book",
+        "Weight 0-5",
+        "EC Numeric",
+    ]
+    sheet = _UnknownMaxRowSheet(
+        [
+            ("", "", "Existing evidence.", "", "", "", "=1"),
+            ("", "", "", "", "", "", "=2"),
+        ]
+    )
+
+    rows = _meaningful_evidence_rows(sheet, headers, 4, config)
+
+    assert rows == [4]
+
+
 def test_markdown_json_and_csv_change_plan_files_are_written(tmp_path: Path) -> None:
     config, queue_dir, workbook_path = _setup_preview_fixture(tmp_path)
     result = preview_workbook_export(
@@ -231,3 +258,22 @@ def _append_queue_row(path: Path, queue_name: str, row: dict[str, str]) -> None:
     with path.open("a", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=QUEUE_SCHEMAS[queue_name])
         writer.writerow({header: row.get(header, "") for header in QUEUE_SCHEMAS[queue_name]})
+
+
+class _UnknownMaxRowSheet:
+    max_row = None
+
+    def __init__(self, rows: list[tuple[str, ...]]) -> None:
+        self.rows = rows
+
+    def iter_rows(
+        self,
+        *,
+        min_row: int,
+        max_col: int,
+        values_only: bool,
+    ) -> list[tuple[str, ...]]:
+        assert min_row == 4
+        assert max_col == 7
+        assert values_only is True
+        return self.rows

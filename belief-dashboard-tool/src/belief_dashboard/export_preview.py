@@ -278,8 +278,20 @@ def _meaningful_evidence_rows(sheet: Any, headers: list[str], start_row: int, co
     if not meaningful_columns:
         meaningful_columns = list(range(1, len(headers) + 1))
     rows: list[int] = []
-    for row_number in range(start_row, sheet.max_row + 1):
-        if any(_cell_has_meaningful_value(sheet.cell(row=row_number, column=column).value) for column in meaningful_columns):
+    max_row = _safe_max_row(sheet, start_row)
+    if max_row >= start_row:
+        for row_number in range(start_row, max_row + 1):
+            if any(_cell_has_meaningful_value(sheet.cell(row=row_number, column=column).value) for column in meaningful_columns):
+                rows.append(row_number)
+        return rows
+    for row_number, values in enumerate(
+        sheet.iter_rows(min_row=start_row, max_col=len(headers), values_only=True),
+        start=start_row,
+    ):
+        if any(
+            column <= len(values) and _cell_has_meaningful_value(values[column - 1])
+            for column in meaningful_columns
+        ):
             rows.append(row_number)
     return rows
 
@@ -308,7 +320,7 @@ def _plan_ids(sheet: Any, headers: list[str], start_row: int, last_row: int | No
     column_index = headers.index("ID") + 1
     ids: list[int] = []
     inconsistent = False
-    max_row = last_row if last_row is not None else sheet.max_row
+    max_row = last_row if last_row is not None else _safe_max_row(sheet, start_row)
     if max_row < start_row:
         return {"status": "numeric_ids_planned", "next_id": 1, "warnings": []}
     for cells in sheet.iter_rows(min_row=start_row, max_row=max_row, min_col=column_index, max_col=column_index, values_only=True):
@@ -322,6 +334,13 @@ def _plan_ids(sheet: Any, headers: list[str], start_row: int, last_row: int | No
     if inconsistent:
         return {"status": "inconsistent_existing_ids", "next_id": None, "warnings": ["Existing Evidence Log IDs are text-based or inconsistent; planned IDs left blank."]}
     return {"status": "numeric_ids_planned", "next_id": (max(ids) + 1 if ids else 1), "warnings": []}
+
+
+def _safe_max_row(sheet: Any, minimum_row: int) -> int:
+    max_row = getattr(sheet, "max_row", None)
+    if isinstance(max_row, int) and max_row >= minimum_row:
+        return max_row
+    return minimum_row - 1
 
 
 def _planned_ids_for_rows(status: str, next_id: int | None, count: int) -> list[str]:
