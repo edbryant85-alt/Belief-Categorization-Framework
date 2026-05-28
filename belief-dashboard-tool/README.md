@@ -354,11 +354,16 @@ Validation checks:
 - CSV headers match the expected schema and order.
 - MI5 labels are allowed values.
 - Review statuses are allowed values.
+- Source triage and evidence cluster statuses/actions/roles are allowed values.
 - Weight and criteria score fields are blank or numeric from 0 to 5.
+- Cluster source memberships reference existing `cluster_id` and `source_id` rows.
 
 ## Queue Files
 
 - `source_dossiers.csv`: source-level metadata, summaries, notes, and processing status.
+- `source_triage.csv`: lightweight source-level triage decisions before extraction.
+- `evidence_clusters.csv`: cluster-level metadata for complex research topics.
+- `source_cluster_members.csv`: source membership, roles, subtopics, relevance, and priority inside clusters.
 - `extracted_claims.csv`: claims, arguments, objections, defeaters, and related hypothesis notes extracted from sources later.
 - `criteria_matrix.csv`: 0-5 review scores for relevance, reliability, clarity, argument strength, and related criteria.
 - `proposed_updates.csv`: proposed Evidence Log-style updates awaiting review.
@@ -1784,3 +1789,32 @@ python -m belief_dashboard.cli source-network --hypothesis EC --save
 Cluster IDs are deterministic inside a report, such as `HYP_EC`, `CAT_Philosophical_argument`, `DEF_EC`, `CONFLICT_EC`, `SALIENCE_001`, and `UNCERTAINTY_001`. They are report aids only and are not written back to queues.
 
 `source-brief` inspects one source. `compare-sources` and `source-map` compare or rank sources. `evidence-clusters` and `source-network` summarize broader structure across the evidence base. Conflict detection is heuristic and flags apparent tensions, not proven logical contradictions. Source centrality is based on approved row counts, hypotheses touched, total/maximum weight, and uncertainty/defeater/salience signals.
+
+## Evidence Cluster Scaffolding
+
+Persistent evidence clusters group registered sources before claim extraction. Use them for complex topics where papers, clips, debate threads, and notes should be mapped as one research unit first.
+
+```bash
+python -m belief_dashboard.cli init-cluster-queues
+
+python -m belief_dashboard.cli create-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --title "Simulation Argument and Theological Implications" \
+  --core-question "If simulated worlds are possible or likely, what does that imply for theism, naturalism, creation, divine hiddenness, incarnation, moral responsibility, and religious experience?" \
+  --hypotheses "CT; MT; PT; EC; PC; IS; MS; N" \
+  --topic-tags "simulation argument; Bostrom; theology; naturalism; creation; divine hiddenness; consciousness; philosophy of religion"
+
+python -m belief_dashboard.cli add-source-to-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --source-id SRCXXXX \
+  --role core_argument \
+  --subtopic "Bostrom original trilemma" \
+  --relevance 5 \
+  --priority 5
+
+python -m belief_dashboard.cli cluster-summary --cluster-id CLUST-SIM-001
+python -m belief_dashboard.cli generate-cluster-triage-packet --cluster-id CLUST-SIM-001
+python -m belief_dashboard.cli cluster-candidates-for-extraction --cluster-id CLUST-SIM-001
+```
+
+Cluster commands do not extract claims or update workbooks. See `docs/EVIDENCE_CLUSTERS.md`.

@@ -10,27 +10,29 @@ This tool is a guarded CLI workflow for moving reviewed queue data into timestam
    `python -m belief_dashboard.cli validate-queues`
 3. Register a source and generate manual review materials:
    `register-source`, `create-claim-template`, `generate-prompt-packet`
-4. Validate and append manual imports:
+4. For complex topics, create an evidence cluster before extraction:
+   `init-cluster-queues`, `create-cluster`, `add-source-to-cluster`, `generate-cluster-triage-packet`
+5. Validate and append manual imports:
    `validate-import`, optionally `clean-import`, then `append-import`
-5. Review proposals:
+6. Review proposals:
    `list-proposals`, optionally `batch-review-guide`, then `approve-proposal`, `reject-proposal`, or `defer-proposal`
-6. Preview export:
+7. Preview export:
    `python -m belief_dashboard.cli preview-workbook-export`
-7. Dry-run or apply export to a timestamped output copy:
+8. Dry-run or apply export to a timestamped output copy:
    `python -m belief_dashboard.cli apply-approved-to-workbook --dry-run`
-8. Verify output workbook:
+9. Verify output workbook:
    `python -m belief_dashboard.cli verify-workbook-export --workbook data/outputs/...xlsx`
-9. Compose promotion command:
+10. Compose promotion command:
    `python -m belief_dashboard.cli compose-promote-command --latest`
-10. Run operator preflight:
+11. Run operator preflight:
    `python -m belief_dashboard.cli operator-preflight --mode before-promotion`
-11. Run doctor if anything is unclear or blocked:
+12. Run doctor if anything is unclear or blocked:
    `python -m belief_dashboard.cli doctor --mode before-promotion`
-12. Generate debate-prep summaries from approved records:
+13. Generate debate-prep summaries from approved records:
    `python -m belief_dashboard.cli debate-summary --hypothesis EC`
-13. Generate a fuller printable debate packet:
+14. Generate a fuller printable debate packet:
    `python -m belief_dashboard.cli debate-packet --hypothesis EC`
-14. Generate a prioritized study/reflection queue:
+15. Generate a prioritized study/reflection queue:
    `python -m belief_dashboard.cli study-queue`
 
 Promotion and rollback remain explicit guarded commands. Command composition and preflight do not execute them.
@@ -57,6 +59,37 @@ Repeat validate, clean if needed, dry-run append, and real append for `criteria_
 `clean-import` writes a separate cleaned CSV and does not change queue files. It handles common first-pass CSV issues: UTF-8 BOMs, `status=extracted`, multi-label claim types such as `metaphysical; moral; interpretive`, `review_status=needs_review`, and blank `source_book` values that can be filled from the source dossier title.
 
 If append validation says an ID already exists in the target queue, treat it as a safe stop. No rows were appended. Remove already-imported rows from the manual CSV or skip that append.
+
+## Evidence Cluster Intake
+
+For topics with many related sources, organize the cluster before generating claim extraction packets:
+
+```bash
+python -m belief_dashboard.cli init-cluster-queues
+
+python -m belief_dashboard.cli create-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --title "Simulation Argument and Theological Implications" \
+  --core-question "If simulated worlds are possible or likely, what does that imply for theism, naturalism, creation, divine hiddenness, incarnation, moral responsibility, and religious experience?" \
+  --hypotheses "CT; MT; PT; EC; PC; IS; MS; N" \
+  --topic-tags "simulation argument; Bostrom; theology; naturalism; creation; divine hiddenness; consciousness; philosophy of religion"
+
+python -m belief_dashboard.cli add-source-to-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --source-id SRCXXXX \
+  --role core_argument \
+  --subtopic "Bostrom original trilemma" \
+  --relevance 5 \
+  --priority 5
+
+python -m belief_dashboard.cli cluster-summary --cluster-id CLUST-SIM-001
+python -m belief_dashboard.cli generate-cluster-triage-packet --cluster-id CLUST-SIM-001
+python -m belief_dashboard.cli cluster-candidates-for-extraction --cluster-id CLUST-SIM-001
+```
+
+The cluster packet asks for a research map, role recommendations, likely duplicates/background sources, extraction candidates, major arguments, objections, theological implications, unresolved questions, and next processing actions. It does not request extracted claims or workbook-ready proposals.
+
+See also `docs/EVIDENCE_CLUSTERS.md`.
 
 For proposal review:
 

@@ -38,6 +38,9 @@ queues:
   base_dir: data/queues
   files:
     source_dossiers: source_dossiers.csv
+    source_triage: source_triage.csv
+    evidence_clusters: evidence_clusters.csv
+    source_cluster_members: source_cluster_members.csv
     extracted_claims: extracted_claims.csv
     criteria_matrix: criteria_matrix.csv
     proposed_updates: proposed_updates.csv
@@ -59,10 +62,24 @@ prompt_packets:
   output_dir: reports/prompt_packets
   max_inline_characters: 12000
 
+source_triage:
+  reports_dir: reports/source_triage
+  default_batch_size: 10
+  max_characters_per_source: 2500
+  default_candidate_min_priority: 4
+
+evidence_clusters:
+  reports_dir: reports/evidence_clusters
+  default_candidate_min_priority: 4
+  high_relevance_threshold: 4
+  max_sources: 25
+  max_characters_per_source: 2500
+
 manual_imports:
   input_dir: data/manual_imports
   reports_dir: reports/manual_imports
   supported_import_types:
+    - source_triage
     - extracted_claims
     - criteria_matrix
     - proposed_updates
@@ -143,6 +160,8 @@ artifact_navigation:
     export_verification: reports/export_verification
     workbook_promotion: reports/workbook_promotion
     workbook_recovery: reports/workbook_recovery
+    source_triage: reports/source_triage
+    evidence_clusters: reports/evidence_clusters
   workbooks:
     main: data/workbooks/bayesian_belief_dashboard_expanded_9_hypotheses.xlsx
     outputs: data/outputs
@@ -270,6 +289,42 @@ allowed_values:
     - approved
     - rejected
     - deferred
+  triage_statuses:
+    - pending
+    - triaged
+    - needs_more_context
+  triage_actions:
+    - full_extraction
+    - study_later
+    - cluster
+    - archive
+    - skip
+  cluster_statuses:
+    - proposed
+    - active
+    - triaging
+    - ready_for_extraction
+    - ready_for_evidence_review
+    - archived
+  source_cluster_roles:
+    - core_argument
+    - supporting_argument
+    - objection
+    - counter_objection
+    - theological_application
+    - scientific_context
+    - popular_summary
+    - debate_thread
+    - background
+    - duplicate
+    - user_notes
+  source_cluster_member_statuses:
+    - proposed
+    - active
+    - selected_for_extraction
+    - deferred
+    - archived
+    - duplicate
   claim_types:
     - evidence
     - argument

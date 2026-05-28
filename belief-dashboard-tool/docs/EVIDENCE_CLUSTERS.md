@@ -1,0 +1,123 @@
+# Evidence Clusters
+
+Evidence clusters group related registered sources before claim extraction. Use them when a topic is too connected to process source-by-source without overcounting duplicates, missing objections, or prematurely pushing every source toward workbook evidence.
+
+Clusters do not extract claims, create proposals, export workbooks, verify workbooks, or promote anything. They organize sources so later extraction can focus on the best representatives.
+
+## When To Use A Cluster
+
+Use a cluster when:
+
+- one topic has many papers, clips, debate threads, and notes;
+- sources respond to each other;
+- several sources are background or duplicate summaries;
+- you need a map of major arguments and objections before extraction;
+- the workbook should receive distilled evidence rather than every source individually.
+
+Use normal source-by-source extraction when a source is self-contained and already likely to produce dashboard-worthy evidence rows.
+
+## Queue Files
+
+Cluster metadata lives in:
+
+```text
+data/queues/evidence_clusters.csv
+```
+
+Schema:
+
+```csv
+cluster_id,cluster_title,core_question,description,hypotheses_touched,topic_tags,status,created_date,updated_date,notes
+```
+
+Source membership lives in:
+
+```text
+data/queues/source_cluster_members.csv
+```
+
+Schema:
+
+```csv
+cluster_id,source_id,source_role,subtopic,relevance_0_5,priority_0_5,status,notes
+```
+
+Allowed cluster statuses are `proposed`, `active`, `triaging`, `ready_for_extraction`, `ready_for_evidence_review`, and `archived`.
+
+Allowed source roles are `core_argument`, `supporting_argument`, `objection`, `counter_objection`, `theological_application`, `scientific_context`, `popular_summary`, `debate_thread`, `background`, `duplicate`, and `user_notes`.
+
+## Simulation Argument Workflow
+
+Initialize cluster queues:
+
+```bash
+python -m belief_dashboard.cli init-cluster-queues
+```
+
+Create the first cluster:
+
+```bash
+python -m belief_dashboard.cli create-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --title "Simulation Argument and Theological Implications" \
+  --core-question "If simulated worlds are possible or likely, what does that imply for theism, naturalism, creation, divine hiddenness, incarnation, moral responsibility, and religious experience?" \
+  --hypotheses "CT; MT; PT; EC; PC; IS; MS; N" \
+  --topic-tags "simulation argument; Bostrom; theology; naturalism; creation; divine hiddenness; consciousness; philosophy of religion"
+```
+
+Register sources separately with `register-source` or `bulk-register-sources`. Then add existing source IDs:
+
+```bash
+python -m belief_dashboard.cli add-source-to-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --source-id SRCXXXX \
+  --role core_argument \
+  --subtopic "Bostrom original trilemma" \
+  --relevance 5 \
+  --priority 5
+```
+
+Bulk add already-registered YouTube transcripts:
+
+```bash
+python -m belief_dashboard.cli bulk-add-sources-to-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --source-type youtube_transcript \
+  --role popular_summary \
+  --subtopic "video discussion" \
+  --relevance 2 \
+  --priority 1
+```
+
+Or bulk add by registered path prefix:
+
+```bash
+python -m belief_dashboard.cli bulk-add-sources-to-cluster \
+  --cluster-id CLUST-SIM-001 \
+  --source-folder data/raw_sources/clusters/simulation_argument/youtube \
+  --role popular_summary
+```
+
+Summarize membership:
+
+```bash
+python -m belief_dashboard.cli cluster-summary --cluster-id CLUST-SIM-001
+```
+
+Generate a cluster-level triage packet:
+
+```bash
+python -m belief_dashboard.cli generate-cluster-triage-packet --cluster-id CLUST-SIM-001
+```
+
+List likely extraction candidates:
+
+```bash
+python -m belief_dashboard.cli cluster-candidates-for-extraction --cluster-id CLUST-SIM-001
+```
+
+## Deciding What Gets Extracted
+
+Prefer full extraction for sources that are core arguments, substantial objections, counter-objections, or direct theological applications. Defer or archive sources that are merely popular summaries, duplicates, or background context unless they add a distinct claim that the cluster lacks.
+
+Avoid overcounting: five sources repeating the same argument should usually become one distilled evidence item with notes about repetition, not five independent workbook entries.

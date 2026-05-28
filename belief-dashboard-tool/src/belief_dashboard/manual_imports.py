@@ -13,12 +13,14 @@ from belief_dashboard.utils import timestamp_for_filename, timestamp_iso
 
 
 ID_FIELDS = {
+    "source_triage": "source_id",
     "extracted_claims": "claim_id",
     "criteria_matrix": "claim_id",
     "proposed_updates": "proposal_id",
 }
 
 REQUIRED_FIELDS = {
+    "source_triage": ["source_id", "triage_status", "priority_0_5", "recommended_action"],
     "extracted_claims": ["claim_id", "source_id", "claim_text"],
     "criteria_matrix": ["claim_id", "source_id"],
     "proposed_updates": [
@@ -254,6 +256,9 @@ def queue_summary(queue_dir: str | Path, config: dict[str, Any]) -> dict[str, An
     queue_path = Path(queue_dir)
     counts = {
         "source_dossiers": _row_count(queue_path / config["queues"]["files"]["source_dossiers"]),
+        "source_triage": _row_count(queue_path / config["queues"]["files"]["source_triage"]),
+        "evidence_clusters": _row_count(queue_path / config["queues"]["files"].get("evidence_clusters", "")),
+        "source_cluster_members": _row_count(queue_path / config["queues"]["files"].get("source_cluster_members", "")),
         "extracted_claims": _row_count(queue_path / config["queues"]["files"]["extracted_claims"]),
         "criteria_matrix": _row_count(queue_path / config["queues"]["files"]["criteria_matrix"]),
         "proposed_updates": _row_count(queue_path / config["queues"]["files"]["proposed_updates"]),
@@ -380,6 +385,13 @@ def _validate_type_specific_fields(
     if import_type == "extracted_claims":
         _validate_allowed_values(rows, "claim_type", config["allowed_values"]["claim_types"], result)
         _validate_allowed_values(rows, "status", config["allowed_values"]["review_statuses"], result)
+    if import_type == "source_triage":
+        _validate_allowed_values(rows, "triage_status", config["allowed_values"]["triage_statuses"], result)
+        _validate_allowed_values(rows, "recommended_action", config["allowed_values"]["triage_actions"], result)
+        _validate_numeric_fields(rows, ["priority_0_5"], result)
+        result["score_weight_validation_status"] = (
+            "fail" if _has_score_weight_errors(result) else "pass"
+        )
     if import_type == "criteria_matrix":
         result["claim_id_reference_status"] = _validate_claim_references(rows, known_claim_ids, result)
         _validate_numeric_fields(rows, CRITERIA_SCORE_FIELDS, result)
@@ -395,7 +407,7 @@ def _validate_type_specific_fields(
         result["score_weight_validation_status"] = (
             "fail" if _has_score_weight_errors(result) else "pass"
         )
-    elif import_type == "extracted_claims":
+    elif import_type in {"extracted_claims", "source_triage"}:
         result["claim_id_reference_status"] = "not_applicable"
 
 

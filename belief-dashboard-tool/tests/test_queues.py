@@ -32,6 +32,43 @@ def test_queue_schemas_exist_and_have_expected_headers() -> None:
         "my_notes",
         "processing_status",
     ]
+    assert QUEUE_SCHEMAS["source_triage"] == [
+        "source_id",
+        "triage_status",
+        "priority_0_5",
+        "recommended_action",
+        "relevance_tags",
+        "summary",
+        "key_claims",
+        "reasons_for_attention",
+        "reasons_to_skip",
+        "cluster",
+        "reviewer",
+        "triaged_at",
+        "notes",
+    ]
+    assert QUEUE_SCHEMAS["evidence_clusters"] == [
+        "cluster_id",
+        "cluster_title",
+        "core_question",
+        "description",
+        "hypotheses_touched",
+        "topic_tags",
+        "status",
+        "created_date",
+        "updated_date",
+        "notes",
+    ]
+    assert QUEUE_SCHEMAS["source_cluster_members"] == [
+        "cluster_id",
+        "source_id",
+        "source_role",
+        "subtopic",
+        "relevance_0_5",
+        "priority_0_5",
+        "status",
+        "notes",
+    ]
     assert QUEUE_SCHEMAS["proposed_updates"][6] == "suggested_weight_0_5"
     assert QUEUE_SCHEMAS["proposed_updates"][-1] == "review_status"
 
@@ -42,8 +79,11 @@ def test_init_queues_creates_missing_queue_files(tmp_path: Path) -> None:
 
     result = init_queues(queue_dir, config)
 
-    assert len(result["created"]) == 10
+    assert len(result["created"]) == 13
     assert (queue_dir / "source_dossiers.csv").exists()
+    assert (queue_dir / "source_triage.csv").exists()
+    assert (queue_dir / "evidence_clusters.csv").exists()
+    assert (queue_dir / "source_cluster_members.csv").exists()
     assert (queue_dir / "reflection_journal.md").exists()
     assert _read_header(queue_dir / "proposed_updates.csv") == QUEUE_SCHEMAS["proposed_updates"]
 

@@ -53,6 +53,19 @@ from belief_dashboard.evidence_networks import (
     render_source_network,
     write_evidence_network_reports,
 )
+from belief_dashboard.evidence_clusters import (
+    EvidenceClusterError,
+    add_source_to_cluster,
+    build_cluster_summary,
+    bulk_add_sources_to_cluster,
+    cluster_candidates_for_extraction,
+    create_cluster,
+    generate_cluster_triage_packet,
+    init_cluster_queues,
+    list_clusters,
+    render_cluster_summary,
+    write_cluster_summary_reports,
+)
 from belief_dashboard.export_verification import (
     latest_output_workbook,
     verify_workbook_export,
@@ -110,6 +123,13 @@ from belief_dashboard.source_comparisons import (
     render_source_map,
     write_source_comparison_reports,
 )
+from belief_dashboard.source_triage import (
+    build_triage_summary,
+    bulk_register_sources,
+    generate_triage_prompt_packet,
+    render_triage_summary,
+    write_triage_summary_reports,
+)
 from belief_dashboard.study_queue import build_study_queue, render_study_queue, write_study_queue_reports
 from belief_dashboard.utils import resolve_project_path
 from belief_dashboard.workbook import inspect_workbook, write_reports
@@ -151,6 +171,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path to config.yaml. Defaults to ./config.yaml.",
     )
 
+    init_cluster_parser = subparsers.add_parser(
+        "init-cluster-queues",
+        help="Create missing evidence cluster queue CSV templates.",
+    )
+    init_cluster_parser.add_argument("--force", action="store_true", help="Overwrite existing cluster queue files intentionally.")
+    init_cluster_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
     validate_parser = subparsers.add_parser(
         "validate-queues",
         help="Validate queue CSV templates and values.",
@@ -180,6 +207,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="config.yaml",
         help="Path to config.yaml. Defaults to ./config.yaml.",
     )
+
+    bulk_register_parser = subparsers.add_parser(
+        "bulk-register-sources",
+        help="Register many raw source files for lightweight triage.",
+    )
+    bulk_register_parser.add_argument("--dir", required=True, help="Directory containing raw source files.")
+    bulk_register_parser.add_argument("--glob", default="*", help="Filename glob to match. Defaults to *.")
+    bulk_register_parser.add_argument("--recursive", action="store_true", help="Search directories recursively.")
+    bulk_register_parser.add_argument("--limit", type=int, help="Maximum files to register.")
+    bulk_register_parser.add_argument("--source-type", default="youtube_transcript", help="Source type to assign. Defaults to youtube_transcript.")
+    bulk_register_parser.add_argument("--author", default="", help="Optional author or speaker for all registered files.")
+    bulk_register_parser.add_argument("--allow-duplicate", action="store_true", help="Allow duplicate original file paths.")
+    bulk_register_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
     find_source_parser = subparsers.add_parser(
         "find-source",
@@ -222,6 +262,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="config.yaml",
         help="Path to config.yaml. Defaults to ./config.yaml.",
     )
+
+    triage_packet_parser = subparsers.add_parser(
+        "generate-triage-packet",
+        help="Create a ChatGPT-ready batch source triage prompt packet.",
+    )
+    triage_packet_parser.add_argument("--source-id", action="append", help="Source ID to include. Can be repeated.")
+    triage_packet_parser.add_argument("--limit", type=int, help="Maximum untriaged sources to include.")
+    triage_packet_parser.add_argument("--include-triaged", action="store_true", help="Allow already triaged sources in automatic selection.")
+    triage_packet_parser.add_argument("--max-characters-per-source", type=int, help="Maximum characters to include per source.")
+    triage_packet_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
     validate_import_parser = subparsers.add_parser(
         "validate-import",
@@ -279,6 +329,90 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="config.yaml",
         help="Path to config.yaml. Defaults to ./config.yaml.",
     )
+
+    triage_summary_parser = subparsers.add_parser(
+        "triage-summary",
+        help="Summarize source triage decisions and full-extraction candidates.",
+    )
+    triage_summary_parser.add_argument("--min-priority", type=int, help="Minimum priority for full-extraction candidates.")
+    triage_summary_parser.add_argument("--limit", type=int, help="Maximum candidate rows to include.")
+    triage_summary_parser.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format. Defaults to markdown.")
+    triage_summary_parser.add_argument("--save", action="store_true", help="Save markdown and JSON reports under reports/source_triage.")
+    triage_summary_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    triage_candidates_parser = subparsers.add_parser(
+        "list-triage-candidates",
+        help="List triaged sources recommended for full extraction.",
+    )
+    triage_candidates_parser.add_argument("--min-priority", type=int, help="Minimum priority. Defaults to source_triage.default_candidate_min_priority.")
+    triage_candidates_parser.add_argument("--limit", type=int, help="Maximum candidates to print.")
+    triage_candidates_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format. Defaults to table.")
+    triage_candidates_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    create_cluster_parser = subparsers.add_parser("create-cluster", help="Create one evidence cluster row.")
+    create_cluster_parser.add_argument("--cluster-id", required=True)
+    create_cluster_parser.add_argument("--title", required=True)
+    create_cluster_parser.add_argument("--core-question", required=True)
+    create_cluster_parser.add_argument("--description", default="")
+    create_cluster_parser.add_argument("--hypotheses", default="")
+    create_cluster_parser.add_argument("--topic-tags", default="")
+    create_cluster_parser.add_argument("--status", default="active")
+    create_cluster_parser.add_argument("--notes", default="")
+    create_cluster_parser.add_argument("--config", default="config.yaml")
+
+    add_cluster_source_parser = subparsers.add_parser("add-source-to-cluster", help="Assign one registered source to an evidence cluster.")
+    add_cluster_source_parser.add_argument("--cluster-id", required=True)
+    add_cluster_source_parser.add_argument("--source-id", required=True)
+    add_cluster_source_parser.add_argument("--role", required=True)
+    add_cluster_source_parser.add_argument("--subtopic", default="")
+    add_cluster_source_parser.add_argument("--relevance", type=float, default=0)
+    add_cluster_source_parser.add_argument("--priority", type=float, default=0)
+    add_cluster_source_parser.add_argument("--status", default="active")
+    add_cluster_source_parser.add_argument("--notes", default="")
+    add_cluster_source_parser.add_argument("--allow-duplicate", action="store_true")
+    add_cluster_source_parser.add_argument("--config", default="config.yaml")
+
+    bulk_cluster_source_parser = subparsers.add_parser("bulk-add-sources-to-cluster", help="Assign multiple existing source dossier rows to a cluster.")
+    bulk_cluster_source_parser.add_argument("--cluster-id", required=True)
+    bulk_cluster_source_parser.add_argument("--source-type")
+    bulk_cluster_source_parser.add_argument("--source-folder")
+    bulk_cluster_source_parser.add_argument("--source-id", action="append", default=[])
+    bulk_cluster_source_parser.add_argument("--role", required=True)
+    bulk_cluster_source_parser.add_argument("--subtopic", default="")
+    bulk_cluster_source_parser.add_argument("--relevance", type=float, default=0)
+    bulk_cluster_source_parser.add_argument("--priority", type=float, default=0)
+    bulk_cluster_source_parser.add_argument("--status", default="active")
+    bulk_cluster_source_parser.add_argument("--allow-duplicate", action="store_true")
+    bulk_cluster_source_parser.add_argument("--format", choices=["table", "json"], default="table")
+    bulk_cluster_source_parser.add_argument("--config", default="config.yaml")
+
+    cluster_summary_parser = subparsers.add_parser("cluster-summary", help="Summarize one evidence cluster.")
+    cluster_summary_parser.add_argument("--cluster-id", required=True)
+    cluster_summary_parser.add_argument("--format", choices=["table", "json"], default="table")
+    cluster_summary_parser.add_argument("--save", action="store_true")
+    cluster_summary_parser.add_argument("--config", default="config.yaml")
+
+    list_clusters_parser = subparsers.add_parser("list-clusters", help="List evidence clusters.")
+    list_clusters_parser.add_argument("--status")
+    list_clusters_parser.add_argument("--topic")
+    list_clusters_parser.add_argument("--hypothesis")
+    list_clusters_parser.add_argument("--format", choices=["table", "json"], default="table")
+    list_clusters_parser.add_argument("--config", default="config.yaml")
+
+    cluster_packet_parser = subparsers.add_parser("generate-cluster-triage-packet", help="Create a cluster-level ChatGPT triage packet.")
+    cluster_packet_parser.add_argument("--cluster-id", required=True)
+    cluster_packet_parser.add_argument("--max-sources", type=int)
+    cluster_packet_parser.add_argument("--max-chars-per-source", type=int)
+    cluster_packet_parser.add_argument("--include-role")
+    cluster_packet_parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    cluster_packet_parser.add_argument("--output")
+    cluster_packet_parser.add_argument("--config", default="config.yaml")
+
+    cluster_candidates_parser = subparsers.add_parser("cluster-candidates-for-extraction", help="List cluster sources likely worth full extraction.")
+    cluster_candidates_parser.add_argument("--cluster-id", required=True)
+    cluster_candidates_parser.add_argument("--min-priority", type=float)
+    cluster_candidates_parser.add_argument("--format", choices=["table", "json"], default="table")
+    cluster_candidates_parser.add_argument("--config", default="config.yaml")
 
     approve_parser = subparsers.add_parser(
         "approve-proposal",
@@ -654,16 +788,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _inspect_workbook_command(args)
     if args.command == "init-queues":
         return _init_queues_command(args)
+    if args.command == "init-cluster-queues":
+        return _init_cluster_queues_command(args)
     if args.command == "validate-queues":
         return _validate_queues_command(args)
     if args.command == "register-source":
         return _register_source_command(args)
+    if args.command == "bulk-register-sources":
+        return _bulk_register_sources_command(args)
     if args.command == "find-source":
         return _find_source_command(args)
     if args.command == "create-claim-template":
         return _create_claim_template_command(args)
     if args.command == "generate-prompt-packet":
         return _generate_prompt_packet_command(args)
+    if args.command == "generate-triage-packet":
+        return _generate_triage_packet_command(args)
     if args.command == "validate-import":
         return _validate_import_command(args)
     if args.command == "clean-import":
@@ -672,6 +812,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _append_import_command(args)
     if args.command == "queue-summary":
         return _queue_summary_command(args)
+    if args.command == "triage-summary":
+        return _triage_summary_command(args)
+    if args.command == "list-triage-candidates":
+        return _list_triage_candidates_command(args)
+    if args.command == "create-cluster":
+        return _create_cluster_command(args)
+    if args.command == "add-source-to-cluster":
+        return _add_source_to_cluster_command(args)
+    if args.command == "bulk-add-sources-to-cluster":
+        return _bulk_add_sources_to_cluster_command(args)
+    if args.command == "cluster-summary":
+        return _cluster_summary_command(args)
+    if args.command == "list-clusters":
+        return _list_clusters_command(args)
+    if args.command == "generate-cluster-triage-packet":
+        return _generate_cluster_triage_packet_command(args)
+    if args.command == "cluster-candidates-for-extraction":
+        return _cluster_candidates_for_extraction_command(args)
     if args.command == "approve-proposal":
         return _review_proposal_command(args, "approved")
     if args.command == "reject-proposal":
@@ -788,6 +946,20 @@ def _init_queues_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _init_cluster_queues_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    result = init_cluster_queues(queue_dir, config, force=args.force)
+    print(f"Queue directory: {result['base_dir']}")
+    print(f"Created: {len(result['created'])}")
+    print(f"Skipped: {len(result['skipped'])}")
+    print(f"Overwritten: {len(result['overwritten'])}")
+    _print_paths("created", result["created"])
+    _print_paths("skipped", result["skipped"])
+    _print_paths("overwritten", result["overwritten"])
+    return 0
+
+
 def _validate_queues_command(args: argparse.Namespace) -> int:
     config_path = Path(args.config)
     config = load_config(config_path)
@@ -837,6 +1009,33 @@ def _register_source_command(args: argparse.Namespace) -> int:
     print(f"Original file path: {row['original_file_path']}")
     print(f"Dossier file: {result['dossier_path']}")
     return 0
+
+
+def _bulk_register_sources_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    raw_dir = Path(args.dir)
+    result = bulk_register_sources(
+        raw_dir,
+        queue_dir,
+        config,
+        source_type=args.source_type,
+        pattern=args.glob,
+        recursive=args.recursive,
+        limit=args.limit,
+        author=args.author,
+        allow_duplicate=args.allow_duplicate,
+    )
+    print(f"Raw sources directory: {result['raw_sources_dir']}")
+    print(f"Files considered: {result['files_considered']}")
+    print(f"Registered: {len(result['registered'])}")
+    print(f"Skipped: {len(result['skipped'])}")
+    if result["registered"]:
+        for row in result["registered"]:
+            print(f"- {row['source_id']}: {row['title']} ({row['file_path']})")
+    if result["errors"]:
+        print(f"Errors: {len(result['errors'])}")
+    return 1 if result["errors"] else 0
 
 
 def _find_source_command(args: argparse.Namespace) -> int:
@@ -900,6 +1099,35 @@ def _generate_prompt_packet_command(args: argparse.Namespace) -> int:
     print(f"Prompt packet: {result['prompt_packet_path']}")
     print(f"Characters included: {result['characters_included']}")
     print(f"Truncated: {result['truncated']}")
+    return 0
+
+
+def _generate_triage_packet_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    output_dir = resolve_project_path(config["source_triage"]["reports_dir"], base_dir=base_dir)
+    limit = args.limit
+    if limit is None and not args.source_id:
+        limit = int(config["source_triage"]["default_batch_size"])
+    try:
+        result = generate_triage_prompt_packet(
+            queue_dir,
+            output_dir,
+            config,
+            source_ids=args.source_id,
+            limit=limit,
+            include_triaged=args.include_triaged,
+            max_characters_per_source=args.max_characters_per_source,
+        )
+    except (FileNotFoundError, QueueSetupError, SourceRegistrationError) as exc:
+        print(f"Could not generate triage packet: {exc}")
+        return 1
+    print("Triage prompt packet created.")
+    print(f"Sources included: {result['source_count']}")
+    print(f"Source IDs: {', '.join(result['source_ids'])}")
+    print(f"Prompt packet: {result['prompt_packet_path']}")
+    print(f"Characters included: {result['characters_included']}")
+    print(f"Truncated sources: {result['truncated_source_count']}")
     return 0
 
 
@@ -980,6 +1208,200 @@ def _queue_summary_command(args: argparse.Namespace) -> int:
     if args.save:
         summary_path = write_queue_summary(summary, reports_dir)
         print(f"Markdown summary: {summary_path}")
+    return 0
+
+
+def _triage_summary_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    reports_dir = resolve_project_path(config["source_triage"]["reports_dir"], base_dir=base_dir)
+    summary = build_triage_summary(queue_dir, config, min_priority=args.min_priority, limit=args.limit)
+    if args.format == "json":
+        print(json.dumps(summary, indent=2))
+    else:
+        print(render_triage_summary(summary))
+    if args.save:
+        markdown_path, json_path = write_triage_summary_reports(summary, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 0
+
+
+def _list_triage_candidates_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    summary = build_triage_summary(queue_dir, config, min_priority=args.min_priority, limit=args.limit)
+    candidates = summary["full_extraction_candidates"]
+    if args.format == "json":
+        print(json.dumps(candidates, indent=2))
+        return 0
+    print(_render_triage_candidates_table(candidates))
+    return 0
+
+
+def _create_cluster_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    try:
+        result = create_cluster(
+            queue_dir,
+            config,
+            cluster_id=args.cluster_id,
+            title=args.title,
+            core_question=args.core_question,
+            description=args.description,
+            hypotheses=args.hypotheses,
+            topic_tags=args.topic_tags,
+            status=args.status,
+            notes=args.notes,
+        )
+    except (EvidenceClusterError, QueueSetupError) as exc:
+        print(f"Could not create cluster: {exc}")
+        return 1
+    print("Evidence cluster created.")
+    print(f"Cluster ID: {result['cluster_id']}")
+    print(f"Cluster queue: {result['cluster_path']}")
+    return 0
+
+
+def _add_source_to_cluster_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    try:
+        result = add_source_to_cluster(
+            queue_dir,
+            config,
+            cluster_id=args.cluster_id,
+            source_id=args.source_id,
+            role=args.role,
+            subtopic=args.subtopic,
+            relevance=args.relevance,
+            priority=args.priority,
+            status=args.status,
+            notes=args.notes,
+            allow_duplicate=args.allow_duplicate,
+        )
+    except (EvidenceClusterError, QueueSetupError) as exc:
+        print(f"Could not add source to cluster: {exc}")
+        return 1
+    print("Source added to evidence cluster.")
+    print(f"Cluster ID: {result['row']['cluster_id']}")
+    print(f"Source ID: {result['row']['source_id']}")
+    print(f"Role: {result['row']['source_role']}")
+    print(f"Membership queue: {result['membership_path']}")
+    return 0
+
+
+def _bulk_add_sources_to_cluster_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    try:
+        result = bulk_add_sources_to_cluster(
+            queue_dir,
+            config,
+            cluster_id=args.cluster_id,
+            source_type=args.source_type,
+            source_folder=args.source_folder,
+            source_ids=args.source_id,
+            role=args.role,
+            subtopic=args.subtopic,
+            relevance=args.relevance,
+            priority=args.priority,
+            status=args.status,
+            allow_duplicate=args.allow_duplicate,
+        )
+    except (EvidenceClusterError, QueueSetupError) as exc:
+        print(f"Could not bulk add sources to cluster: {exc}")
+        return 1
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Cluster ID: {result['cluster_id']}")
+        print(f"Considered: {result['considered']}")
+        print(f"Added: {len(result['added'])}")
+        print(f"Skipped: {len(result['skipped'])}")
+        print(f"Failed: {len(result['failed'])}")
+        for row in result["added"]:
+            print(f"- {row['source_id']}: {row['title']}")
+    return 1 if result["failed"] else 0
+
+
+def _cluster_summary_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    try:
+        summary = build_cluster_summary(queue_dir, config, cluster_id=args.cluster_id)
+    except (EvidenceClusterError, QueueSetupError) as exc:
+        print(f"Could not summarize cluster: {exc}")
+        return 1
+    if args.format == "json":
+        print(json.dumps(summary, indent=2))
+    else:
+        print(render_cluster_summary(summary))
+    if args.save:
+        reports_dir = resolve_project_path(config.get("evidence_clusters", {}).get("reports_dir", "reports/evidence_clusters"), base_dir=base_dir)
+        markdown_path, json_path = write_cluster_summary_reports(summary, reports_dir)
+        print(f"Markdown report: {markdown_path}")
+        print(f"JSON report: {json_path}")
+    return 0
+
+
+def _list_clusters_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    try:
+        result = list_clusters(queue_dir, config, status=args.status, topic=args.topic, hypothesis=args.hypothesis)
+    except QueueSetupError as exc:
+        print(f"Could not list clusters: {exc}")
+        return 1
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(_render_clusters_table(result["rows"]))
+    return 0
+
+
+def _generate_cluster_triage_packet_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    reports_dir = resolve_project_path(config.get("evidence_clusters", {}).get("reports_dir", "reports/evidence_clusters"), base_dir=base_dir)
+    try:
+        result = generate_cluster_triage_packet(
+            queue_dir,
+            reports_dir,
+            config,
+            cluster_id=args.cluster_id,
+            max_sources=args.max_sources,
+            max_chars_per_source=args.max_chars_per_source,
+            include_role=args.include_role,
+            output_path=args.output,
+        )
+    except (EvidenceClusterError, QueueSetupError) as exc:
+        print(f"Could not generate cluster triage packet: {exc}")
+        return 1
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print("Cluster triage prompt packet created.")
+        print(f"Cluster ID: {result['cluster_id']}")
+        print(f"Sources included: {result['source_count']}")
+        print(f"Prompt packet: {result['prompt_packet_path']}")
+        print(f"Characters included: {result['characters_included']}")
+    return 0
+
+
+def _cluster_candidates_for_extraction_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    try:
+        result = cluster_candidates_for_extraction(queue_dir, config, cluster_id=args.cluster_id, min_priority=args.min_priority)
+    except (EvidenceClusterError, QueueSetupError) as exc:
+        print(f"Could not list cluster candidates: {exc}")
+        return 1
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(_render_cluster_candidates_table(result["rows"]))
     return 0
 
 
@@ -1870,6 +2292,36 @@ def _render_sources_table(rows: list[dict[str, str]]) -> str:
         lines.append(" | ".join(_clip(row.get(header, "")) for header in headers))
     if not rows:
         lines.append("No matching sources found. |  |  |  | ")
+    return "\n".join(lines)
+
+
+def _render_triage_candidates_table(rows: list[dict[str, str]]) -> str:
+    headers = ["source_id", "priority_0_5", "recommended_action", "title", "cluster"]
+    lines = [" | ".join(headers), " | ".join(["---"] * len(headers))]
+    for row in rows:
+        lines.append(" | ".join(_clip(row.get(header, "")) for header in headers))
+    if not rows:
+        lines.append("No full-extraction candidates found. |  |  |  | ")
+    return "\n".join(lines)
+
+
+def _render_clusters_table(rows: list[dict[str, str]]) -> str:
+    headers = ["cluster_id", "cluster_title", "status", "hypotheses_touched", "topic_tags", "source_count"]
+    lines = [" | ".join(headers), " | ".join(["---"] * len(headers))]
+    for row in rows:
+        lines.append(" | ".join(_clip(str(row.get(header, ""))) for header in headers))
+    if not rows:
+        lines.append("No matching clusters found. |  |  |  |  | ")
+    return "\n".join(lines)
+
+
+def _render_cluster_candidates_table(rows: list[dict[str, str]]) -> str:
+    headers = ["source_id", "title", "source_type", "source_role", "subtopic", "relevance_0_5", "priority_0_5", "suggested_next_command"]
+    lines = [" | ".join(headers), " | ".join(["---"] * len(headers))]
+    for row in rows:
+        lines.append(" | ".join(_clip(str(row.get(header, ""))) for header in headers))
+    if not rows:
+        lines.append("No cluster extraction candidates found. |  |  |  |  |  |  | ")
     return "\n".join(lines)
 
 

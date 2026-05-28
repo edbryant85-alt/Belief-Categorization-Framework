@@ -61,11 +61,16 @@ def validate_queues(
     }
 
     for queue_name, headers in QUEUE_SCHEMAS.items():
+        if queue_name not in files_config:
+            result["warnings"].append(f"Queue file config is missing for optional queue: {queue_name}")
+            continue
         path = queue_dir / files_config[queue_name]
         file_result = _validate_csv_file(queue_name, path, headers, config)
         result["required_files"][queue_name] = file_result
         result["errors"].extend(file_result["errors"])
         result["warnings"].extend(file_result["warnings"])
+
+    _validate_cluster_cross_references(queue_dir, config, result)
 
     journal_path = queue_dir / files_config["reflection_journal"]
     journal_result = {
@@ -204,6 +209,47 @@ def _validate_row(
             result,
             config["allowed_values"]["claim_types"],
         )
+    if queue_name == "source_triage":
+        _validate_allowed_value(
+            row.get("triage_status"),
+            "triage_status",
+            row_number,
+            result,
+            config["allowed_values"]["triage_statuses"],
+        )
+        _validate_allowed_value(
+            row.get("recommended_action"),
+            "recommended_action",
+            row_number,
+            result,
+            config["allowed_values"]["triage_actions"],
+        )
+        _validate_zero_to_five(row.get("priority_0_5"), "priority_0_5", row_number, result)
+    if queue_name == "evidence_clusters":
+        _validate_allowed_value(
+            row.get("status"),
+            "status",
+            row_number,
+            result,
+            config["allowed_values"].get("cluster_statuses", []),
+        )
+    if queue_name == "source_cluster_members":
+        _validate_allowed_value(
+            row.get("source_role"),
+            "source_role",
+            row_number,
+            result,
+            config["allowed_values"].get("source_cluster_roles", []),
+        )
+        _validate_allowed_value(
+            row.get("status"),
+            "status",
+            row_number,
+            result,
+            config["allowed_values"].get("source_cluster_member_statuses", []),
+        )
+        _validate_zero_to_five(row.get("relevance_0_5"), "relevance_0_5", row_number, result)
+        _validate_zero_to_five(row.get("priority_0_5"), "priority_0_5", row_number, result)
     if queue_name == "criteria_matrix":
         for field in CRITERIA_SCORE_FIELDS:
             _validate_zero_to_five(row.get(field), field, row_number, result)
@@ -263,6 +309,42 @@ def _validate_allowed_value(
         result["errors"].append(
             f"Row {row_number}: {field} has invalid value '{value}'."
         )
+
+
+def _validate_cluster_cross_references(queue_dir: Path, config: dict[str, Any], result: dict[str, Any]) -> None:
+    files_config = config["queues"]["files"]
+    required = {"source_dossiers", "evidence_clusters", "source_cluster_members"}
+    if not required.issubset(files_config):
+        return
+    source_path = queue_dir / files_config["source_dossiers"]
+    cluster_path = queue_dir / files_config["evidence_clusters"]
+    member_path = queue_dir / files_config["source_cluster_members"]
+    if not source_path.exists() or not cluster_path.exists() or not member_path.exists():
+        return
+    source_ids = _ids_from_csv(source_path, "source_id")
+    cluster_ids = _ids_from_csv(cluster_path, "cluster_id")
+    with member_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row_number, row in enumerate(reader, start=2):
+            cluster_id = (row.get("cluster_id") or "").strip()
+            source_id = (row.get("source_id") or "").strip()
+            if cluster_id and cluster_id not in cluster_ids:
+                error = f"Row {row_number}: cluster_id not found in evidence_clusters.csv: {cluster_id}."
+                result["errors"].append(error)
+                result["required_files"]["source_cluster_members"]["errors"].append(error)
+            if source_id and source_id not in source_ids:
+                error = f"Row {row_number}: source_id not found in source_dossiers.csv: {source_id}."
+                result["errors"].append(error)
+                result["required_files"]["source_cluster_members"]["errors"].append(error)
+
+
+def _ids_from_csv(path: Path, field: str) -> set[str]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return {
+            (row.get(field) or "").strip()
+            for row in csv.DictReader(handle)
+            if (row.get(field) or "").strip()
+        }
 
 
 def _validate_zero_to_five(
