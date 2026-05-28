@@ -12,6 +12,10 @@ build/
 data/queues/*.csv
 !data/queues/.gitkeep
 data/manual_imports/*.csv
+data/manual_imports/*.docx
+data/manual_imports/*.pdf
+data/manual_imports/*.md
+data/manual_imports/*.txt
 !data/manual_imports/.gitkeep
 data/workbooks/*.xlsx
 !data/workbooks/.gitkeep
