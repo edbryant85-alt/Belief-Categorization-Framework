@@ -223,6 +223,42 @@ def test_clean_import_normalizes_human_readable_claim_type_labels(tmp_path: Path
     assert validate_manual_import("extracted_claims", cleaned_claims, queue_dir, config)["overall_status"] == "pass"
 
 
+def test_clean_import_normalizes_src0009_generated_claim_type_labels(tmp_path: Path) -> None:
+    config, queue_dir = _setup_queue_with_source(tmp_path)
+    claims_path = tmp_path / "SRC0009_extracted_claims.csv"
+    cleaned_claims = tmp_path / "SRC0009_extracted_claims_cleaned.csv"
+    _write_import(
+        claims_path,
+        "extracted_claims",
+        [
+            {"claim_id": "C001", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "limit_claim"},
+            {"claim_id": "C002", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "technological_claim"},
+            {"claim_id": "C003", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "probabilistic_claim"},
+            {"claim_id": "C004", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "trilemma"},
+            {"claim_id": "C005", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "epistemic_claim"},
+            {"claim_id": "C006", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "sociological_claim"},
+            {"claim_id": "C007", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "theological_analogy"},
+            {"claim_id": "C008", "source_id": "SRC0001", "claim_text": "A claim.", "claim_type": "conclusion"},
+        ],
+    )
+
+    result = clean_manual_import("extracted_claims", claims_path, cleaned_claims, queue_dir, config)
+    cleaned_rows = _read_rows(cleaned_claims)
+
+    assert result["overall_status"] == "pass"
+    assert [row["claim_type"] for row in cleaned_rows] == [
+        "interpretive_claim",
+        "scientific_claim",
+        "argument",
+        "argument",
+        "interpretive_claim",
+        "historical_claim",
+        "theological_claim",
+        "argument",
+    ]
+    assert validate_manual_import("extracted_claims", cleaned_claims, queue_dir, config)["overall_status"] == "pass"
+
+
 def test_clean_import_normalizes_needs_review_and_blank_source_book(tmp_path: Path) -> None:
     config, queue_dir = _setup_queue_with_source(tmp_path)
     _append_queue_row(queue_dir / "extracted_claims.csv", "extracted_claims", {"claim_id": "C001", "source_id": "SRC0001", "claim_text": "A claim."})
@@ -236,6 +272,21 @@ def test_clean_import_normalizes_needs_review_and_blank_source_book(tmp_path: Pa
     assert result["overall_status"] == "pass"
     assert cleaned_rows[0]["review_status"] == "proposed"
     assert cleaned_rows[0]["source_book"] == "Source"
+
+
+def test_clean_import_normalizes_pending_review_status(tmp_path: Path) -> None:
+    config, queue_dir = _setup_queue_with_source(tmp_path)
+    _append_queue_row(queue_dir / "extracted_claims.csv", "extracted_claims", {"claim_id": "C001", "source_id": "SRC0001", "claim_text": "A claim."})
+    import_path = tmp_path / "SRC0009_proposed_updates.csv"
+    cleaned_path = tmp_path / "SRC0009_proposed_updates_cleaned.csv"
+    _write_import(import_path, "proposed_updates", [_valid_proposal_row({"review_status": "pending_review"})])
+
+    result = clean_manual_import("proposed_updates", import_path, cleaned_path, queue_dir, config)
+    cleaned_rows = _read_rows(cleaned_path)
+
+    assert result["overall_status"] == "pass"
+    assert cleaned_rows[0]["review_status"] == "proposed"
+    assert validate_manual_import("proposed_updates", cleaned_path, queue_dir, config)["overall_status"] == "pass"
 
 
 def test_clean_import_normalizes_pending_manual_review_and_skips_blank_proposal_rows(tmp_path: Path) -> None:
