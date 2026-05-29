@@ -12,27 +12,30 @@ This tool is a guarded CLI workflow for moving reviewed queue data into timestam
    `register-source`, `create-claim-template`, `generate-extraction-workspace`
 4. For complex topics, create an evidence cluster before extraction:
    `init-cluster-queues`, `create-cluster`, `add-source-to-cluster`, `generate-cluster-triage-packet`
-5. Validate and append manual imports:
+5. For larger clusters, run guarded batch passes before real append:
+   `python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --mode prepare`,
+   then `--mode qa`, then `--mode dry-run`
+6. Validate and append manual imports:
    `validate-import`, optionally `clean-import`, then `append-import`
-6. Review proposals:
+7. Review proposals:
    `list-proposals`, optionally `batch-review-guide`, then `approve-proposal`, `reject-proposal`, or `defer-proposal`
-7. Preview export:
+8. Preview export:
    `python -m belief_dashboard.cli preview-workbook-export`
-8. Dry-run or apply export to a timestamped output copy:
+9. Dry-run or apply export to a timestamped output copy:
    `python -m belief_dashboard.cli apply-approved-to-workbook --dry-run`
-9. Verify output workbook:
+10. Verify output workbook:
    `python -m belief_dashboard.cli verify-workbook-export --workbook data/outputs/...xlsx`
-10. Compose promotion command:
+11. Compose promotion command:
    `python -m belief_dashboard.cli compose-promote-command --latest`
-11. Run operator preflight:
+12. Run operator preflight:
    `python -m belief_dashboard.cli operator-preflight --mode before-promotion`
-12. Run doctor if anything is unclear or blocked:
+13. Run doctor if anything is unclear or blocked:
    `python -m belief_dashboard.cli doctor --mode before-promotion`
-13. Generate debate-prep summaries from approved records:
+14. Generate debate-prep summaries from approved records:
    `python -m belief_dashboard.cli debate-summary --hypothesis EC`
-14. Generate a fuller printable debate packet:
+15. Generate a fuller printable debate packet:
    `python -m belief_dashboard.cli debate-packet --hypothesis EC`
-15. Generate a prioritized study/reflection queue:
+16. Generate a prioritized study/reflection queue:
    `python -m belief_dashboard.cli study-queue`
 
 Promotion and rollback remain explicit guarded commands. Command composition and preflight do not execute them.
@@ -93,7 +96,7 @@ python -m belief_dashboard.cli create-cluster \
 
 python -m belief_dashboard.cli add-source-to-cluster \
   --cluster-id CLUST-SIM-001 \
-  --source-id SRCXXXX \
+  --source-id SRC0012 \
   --role core_argument \
   --subtopic "Bostrom original trilemma" \
   --relevance 5 \
@@ -105,6 +108,16 @@ python -m belief_dashboard.cli cluster-candidates-for-extraction --cluster-id CL
 ```
 
 The cluster packet asks for a research map, role recommendations, likely duplicates/background sources, extraction candidates, major arguments, objections, theological implications, unresolved questions, and next processing actions. It does not request extracted claims or workbook-ready proposals.
+
+For repeatable 10-25 source cluster batches, use the report-first agentflow controller:
+
+```bash
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode prepare
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode qa
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode dry-run
+```
+
+The batch controller does not run real `append-import`. After human review, run real append only through the native CLI and only for files that validated and passed dry-run checks.
 
 See also `docs/EVIDENCE_CLUSTERS.md`.
 

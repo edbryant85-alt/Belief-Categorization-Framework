@@ -26,12 +26,15 @@ COMMAND_POLICY: dict[str, CommandSpec] = {
     "operator-preflight": CommandSpec("operator-preflight", CommandRisk.READ_ONLY, False),
     "preview-workbook-export": CommandSpec("preview-workbook-export", CommandRisk.READ_ONLY, False),
     "verify-workbook-export": CommandSpec("verify-workbook-export", CommandRisk.READ_ONLY, False),
+    "diagnose-import-shape": CommandSpec("diagnose-import-shape", CommandRisk.READ_ONLY, False),
+    "cluster-extraction-batch": CommandSpec("cluster-extraction-batch", CommandRisk.READ_ONLY, False),
     "generate-extraction-workspace": CommandSpec(
         "generate-extraction-workspace",
         CommandRisk.INTERMEDIATE_WRITE,
         False,
     ),
     "clean-import": CommandSpec("clean-import", CommandRisk.INTERMEDIATE_WRITE, False),
+    "append-import --dry-run": CommandSpec("append-import --dry-run", CommandRisk.READ_ONLY, False),
     "append-import": CommandSpec("append-import", CommandRisk.GUARDED_WRITE, True),
     "approve-proposal": CommandSpec("approve-proposal", CommandRisk.GUARDED_WRITE, True),
     "reject-proposal": CommandSpec("reject-proposal", CommandRisk.GUARDED_WRITE, True),
@@ -56,6 +59,8 @@ def resolve_command_policy(command: list[str]) -> CommandSpec:
         raise PermissionError("Command is empty.")
     if command[0] == "verify-workbook-export" and "--mark-exported" in command:
         return COMMAND_POLICY["verify-workbook-export --mark-exported"]
+    if command[0] == "append-import" and "--dry-run" in command:
+        return COMMAND_POLICY["append-import --dry-run"]
     command_name = command[0]
     if command_name not in COMMAND_POLICY:
         raise PermissionError(f"Command is not allowlisted for agent execution: {command_name}")

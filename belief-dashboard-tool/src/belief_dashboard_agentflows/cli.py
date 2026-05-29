@@ -6,6 +6,10 @@ import subprocess
 from pathlib import Path
 from typing import Any, Sequence
 
+from belief_dashboard_agentflows.flows.cluster_extraction_batch import (
+    render_cluster_batch_markdown,
+    run_cluster_extraction_batch,
+)
 from belief_dashboard_agentflows.flows.export_preflight import run_export_preflight
 from belief_dashboard_agentflows.flows.extraction_qa import run_extraction_qa
 from belief_dashboard_agentflows.flows.proposal_review_assistant import build_proposal_review_cards
@@ -38,6 +42,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     _add_common_args(preflight_parser)
     preflight_parser.add_argument("--output-workbook")
 
+    cluster_parser = subparsers.add_parser("cluster-extraction-batch", help="Run a guarded extraction batch controller for an evidence cluster.")
+    _add_common_args(cluster_parser)
+    cluster_parser.add_argument("--cluster-id", required=True)
+    cluster_parser.add_argument("--source-id", action="append", default=[])
+    cluster_parser.add_argument("--limit", type=int)
+    cluster_parser.add_argument("--mode", choices=["prepare", "qa", "dry-run", "report"], default="report")
+    cluster_parser.add_argument("--force-workspace", action="store_true")
+    cluster_parser.add_argument("--include-already-imported", action="store_true")
+
     args = parser.parse_args(argv)
     try:
         if args.auto_commit:
@@ -63,19 +76,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 limit=args.limit,
                 save=args.save or args.auto_commit,
             )
-        else:
+        elif args.command == "export-preflight":
             report = run_export_preflight(
                 project_dir=args.project_dir,
                 config_path=args.config,
                 output_workbook=args.output_workbook,
                 save=args.save or args.auto_commit,
             )
+        else:
+            report = run_cluster_extraction_batch(
+                cluster_id=args.cluster_id,
+                project_dir=args.project_dir,
+                config_path=args.config,
+                source_ids=args.source_id,
+                limit=args.limit,
+                mode=args.mode,
+                force_workspace=args.force_workspace,
+                include_already_imported=args.include_already_imported,
+                save=True,
+            )
 
         if args.auto_commit:
-            _auto_commit(args.repo_dir, report, args.command, args.source_id if hasattr(args, "source_id") else "")
+            source_label = ""
+            if hasattr(args, "source_id"):
+                source_label = ",".join(args.source_id) if isinstance(args.source_id, list) else args.source_id
+            _auto_commit(args.repo_dir, report, args.command, source_label)
 
         print(_render_report(report, args.format))
-        return 0 if report.get("status") in {"pass", "ready"} else 1
+        return 0 if report.get("status") in {"pass", "ready", "in_progress"} else 1
     except PermissionError as exc:
         print(f"Permission denied: {exc}")
         return 2
@@ -111,6 +139,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
 def _render_report(report: dict[str, Any], output_format: str) -> str:
     if output_format == "json":
         return json.dumps(report, indent=2)
+    if report.get("flow") == "cluster-extraction-batch":
+        return render_cluster_batch_markdown(report)
     return render_markdown(report)
 
 

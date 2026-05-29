@@ -28,6 +28,7 @@ Run the three report-first workflows from the project root:
 python -m belief_dashboard_agentflows.cli extraction-qa --source-id SRC0012
 python -m belief_dashboard_agentflows.cli proposal-review-assistant --source-id SRC0012
 python -m belief_dashboard_agentflows.cli export-preflight
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode report
 ```
 
 Save reports under `reports/agentflows/`:
@@ -85,6 +86,51 @@ The current `--auto-commit` option is intentionally conservative. It refuses to 
 - blockers and warnings;
 - the next safest command.
 
+`cluster-extraction-batch` reports:
+
+- cluster membership and selected source IDs;
+- skipped sources and reasons;
+- source priority, relevance, role, and already-imported status;
+- prompt packet and schema-locked workspace status;
+- prompt packet truncation status;
+- manual import CSV presence and row counts;
+- shape diagnosis, validation, clean-candidate, and dry-run append status by import type;
+- duplicate-risk notes for IDs already present in target queues;
+- recommended next action for each source.
+
+## Cluster Batch Workflow
+
+Use the batch controller for repeatable 10-25 source passes through a cluster:
+
+```bash
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode prepare
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode qa
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode dry-run
+```
+
+Modes:
+
+- `report`: read-only inventory; no workspace generation, validation, cleaning, or append dry-runs.
+- `prepare`: generates or verifies schema-locked extraction workspaces; does not inspect CSV contents deeply.
+- `qa`: diagnoses CSV shape, runs extraction QA, validates import CSVs, and writes separate cleaned candidates when validation fails.
+- `dry-run`: runs QA/validation and uses `append-import --dry-run` only when all three required CSVs validate.
+
+The batch controller does not perform real append, proposal review, workbook export, workbook verification, promotion, rollback, git commit, or git push.
+
+Recommended larger-cluster sequence:
+
+1. Register sources with native `register-source` or `bulk-register-sources`.
+2. Assign cluster membership with native cluster commands.
+3. Run `cluster-extraction-batch --mode prepare`.
+4. Generate or collect manual import CSVs.
+5. Run `cluster-extraction-batch --mode qa`.
+6. Run `cluster-extraction-batch --mode dry-run`.
+7. Human-review the generated rows, warnings, and dry-run output.
+8. Run real `append-import` only through the native CLI.
+9. Review proposals.
+10. Run `export-preflight`.
+11. Export, verify, and promote only through the native guarded CLI.
+
 ## Golden-Path Smoke Test
 
 Use this smoke sequence before review:
@@ -93,6 +139,7 @@ Use this smoke sequence before review:
 python -m belief_dashboard_agentflows.cli extraction-qa --source-id SRC0012
 python -m belief_dashboard_agentflows.cli proposal-review-assistant --source-id SRC0012
 python -m belief_dashboard_agentflows.cli export-preflight
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 5 --mode report
 python -m pytest tests/test_agentflow_policies.py tests/test_agentflows.py
 ```
 
@@ -101,6 +148,7 @@ Expected behavior:
 - `extraction-qa` returns `pass`, `needs_cleanup`, or `blocked` without appending queues.
 - `proposal-review-assistant` returns review cards or a zero-card report without changing proposal state.
 - `export-preflight` may return `not_ready` when the workbook or queues have blockers, but it must not write workbook files.
+- `cluster-extraction-batch --mode report` writes a batch report but does not generate workspaces, clean CSVs, append imports, or touch workbooks.
 - the focused test suite should pass.
 
 Common failure modes:

@@ -70,7 +70,7 @@ Register sources separately with `register-source` or `bulk-register-sources`. T
 ```bash
 python -m belief_dashboard.cli add-source-to-cluster \
   --cluster-id CLUST-SIM-001 \
-  --source-id SRCXXXX \
+  --source-id SRC0012 \
   --role core_argument \
   --subtopic "Bostrom original trilemma" \
   --relevance 5 \
@@ -116,13 +116,23 @@ List likely extraction candidates:
 python -m belief_dashboard.cli cluster-candidates-for-extraction --cluster-id CLUST-SIM-001
 ```
 
+Run a guarded batch controller for a 10-25 source pass:
+
+```bash
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode prepare
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode qa
+python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode dry-run
+```
+
+The batch controller coordinates existing safe steps. It can generate schema-locked extraction workspaces, diagnose import shape, run extraction QA, run native import validation, write separate cleaned candidates, and run `append-import --dry-run` only when all three import files validate. It does not perform real append, proposal review, workbook export, verification, promotion, rollback, git commit, or git push.
+
 Generate schema-locked extraction materials for one selected source:
 
 ```bash
-python -m belief_dashboard.cli generate-extraction-workspace --source-id SRCXXXX
+python -m belief_dashboard.cli generate-extraction-workspace --source-id SRC0012
 ```
 
-Then paste the schema-locked prompt into ChatGPT, save the three returned CSVs under `data/manual_imports/` as `SRCXXXX_extracted_claims.csv`, `SRCXXXX_criteria_matrix.csv`, and `SRCXXXX_proposed_updates.csv`, then clean, validate, and append only after all three cleaned files pass validation.
+Then paste the schema-locked prompt into ChatGPT, save the three returned CSVs under `data/manual_imports/` as `SRC0012_extracted_claims.csv`, `SRC0012_criteria_matrix.csv`, and `SRC0012_proposed_updates.csv`, then clean, validate, and append only after all three cleaned files pass validation.
 
 ## Deciding What Gets Extracted
 
