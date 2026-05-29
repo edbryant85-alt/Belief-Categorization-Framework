@@ -24,6 +24,7 @@ The tool avoids direct workbook changes until an explicit guarded promotion step
 - Generate read-only debate-prep summaries from approved evidence.
 - Generate printable read-only debate packets with trace appendices.
 - Generate read-only prioritized study and reflection queues.
+- Run guarded agentflow copilots for extraction QA, proposal review assistance, and export preflight.
 - Run an end-to-end demo workflow using non-private sample assets.
 
 ## Quick Start
@@ -34,6 +35,7 @@ source .venv/bin/activate
 python -m pip install -e ".[dev]"
 python -m pytest
 python -m belief_dashboard.cli product-readiness
+python -m belief_dashboard_agentflows.cli extraction-qa --source-id SRC0012
 ```
 
 ## Command Map
@@ -133,6 +135,7 @@ See also:
 - `docs/SAFETY_MODEL.md`
 - `docs/DEMO_WALKTHROUGH.md`
 - `docs/TROUBLESHOOTING.md`
+- `docs/AGENTFLOWS.md`
 - `docs/DEBATE_SUMMARIES.md`
 - `docs/DEBATE_PACKETS.md`
 - `docs/STUDY_QUEUE.md`
