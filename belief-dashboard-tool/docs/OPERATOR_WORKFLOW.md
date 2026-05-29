@@ -85,6 +85,35 @@ python -m belief_dashboard.cli generate-extraction-workspace \
   --force
 ```
 
+For long books, register the book as one source, generate a section-aware workspace, then run the guarded packet-cycle planner before extracting anything:
+
+```bash
+python -m belief_dashboard.cli generate-extraction-workspace \
+  --source-id SRC0018 \
+  --packet-strategy section \
+  --max-chars-per-packet 12000 \
+  --force
+
+python -m belief_dashboard.cli plan-source-packet-cycle \
+  --source-id SRC0018 \
+  --max-batch-size 10
+```
+
+The planner writes markdown and JSON reports under `reports/source_packet_cycles/`. It loads the source dossier, finds the newest source map when `--source-map` is omitted, classifies generated packets, groups them into chapter/topic batches, and recommends a bounded first extraction batch. It does not extract claims, generate import CSVs, append queues, review proposals, export or verify workbooks, promote, rollback, commit, or push.
+
+Long-book workflow:
+
+1. Register the book as one source.
+2. Generate a section-aware extraction workspace.
+3. Run `plan-source-packet-cycle`.
+4. Select one recommended batch.
+5. Process only that batch using the schema-locked packet text.
+6. Validate and dry-run before append.
+7. Review proposals after human approval.
+8. Repeat batch-by-batch.
+
+Do not process all packets from a long book in one unattended run.
+
 For deferred review items caused by a truncated packet, generate a targeted packet around the missing section:
 
 ```bash

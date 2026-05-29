@@ -124,6 +124,7 @@ from belief_dashboard.source_briefs import (
     render_source_brief,
     write_source_brief_reports,
 )
+from belief_dashboard.source_packet_cycle import build_source_packet_cycle_plan
 from belief_dashboard.source_comparisons import (
     build_source_comparison,
     build_source_map,
@@ -336,6 +337,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     extraction_workspace_parser.add_argument("--force", action="store_true", help="Overwrite existing template files.")
     extraction_workspace_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    packet_cycle_parser = subparsers.add_parser(
+        "plan-source-packet-cycle",
+        help="Create a guarded read-only packet processing plan for a long section-aware source.",
+    )
+    packet_cycle_parser.add_argument("--source-id", required=True, help="Source ID, such as SRC0018.")
+    packet_cycle_parser.add_argument("--source-map", help="Optional source map path. Defaults to newest source map for the source.")
+    packet_cycle_parser.add_argument("--max-batch-size", type=int, default=10, help="Maximum packets in the first recommended batch. Defaults to 10.")
+    packet_cycle_parser.add_argument("--group", help="Optional exact group name to focus the first recommended batch.")
+    packet_cycle_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
     diagnose_import_shape_parser = subparsers.add_parser(
         "diagnose-import-shape",
@@ -891,6 +902,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _create_import_templates_command(args)
     if args.command == "generate-extraction-workspace":
         return _generate_extraction_workspace_command(args)
+    if args.command == "plan-source-packet-cycle":
+        return _plan_source_packet_cycle_command(args)
     if args.command == "diagnose-import-shape":
         return _diagnose_import_shape_command(args)
     if args.command == "generate-triage-packet":
@@ -1268,6 +1281,39 @@ def _generate_extraction_workspace_command(args: argparse.Namespace) -> int:
     if result["skipped"]:
         print(f"Files skipped: {len(result['skipped'])}")
         _print_paths("skipped", result["skipped"])
+    return 0
+
+
+def _plan_source_packet_cycle_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    prompt_packets_dir = resolve_project_path(config["prompt_packets"]["output_dir"], base_dir=base_dir)
+    reports_dir = resolve_project_path("reports/source_packet_cycles", base_dir=base_dir)
+    source_map = resolve_project_path(args.source_map, base_dir=base_dir) if args.source_map else None
+    try:
+        result = build_source_packet_cycle_plan(
+            args.source_id,
+            queue_dir,
+            prompt_packets_dir,
+            reports_dir,
+            config,
+            source_map=source_map,
+            max_batch_size=args.max_batch_size,
+            group=args.group,
+        )
+    except (FileNotFoundError, QueueSetupError, SourceRegistrationError, ValueError) as exc:
+        print(f"Could not plan source packet cycle: {exc}")
+        return 1
+    first_batch = result["recommended_first_batch"]
+    print("Source packet cycle plan created.")
+    print(f"Source ID: {result['source_id']}")
+    print(f"Packet count: {result['packet_count']}")
+    print(f"Source map: {result['source_map_path']}")
+    print(f"First batch: {first_batch['batch_name']}")
+    print(f"First batch packets: {', '.join(first_batch['packet_ids']) or '(none)'}")
+    print(f"Markdown report: {result['markdown_report_path']}")
+    print(f"JSON report: {result['json_report_path']}")
+    print("Guardrail: no queues, imports, proposals, workbook files, exports, verifications, promotions, rollbacks, or appends were mutated.")
     return 0
 
 

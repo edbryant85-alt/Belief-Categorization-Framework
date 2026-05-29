@@ -144,6 +144,18 @@ python -m belief_dashboard.cli generate-extraction-workspace \
 
 Section mode writes multiple schema-locked packets plus a source map under `reports/prompt_packets/`. Each packet is scoped to a coherent heading/page range and instructs the extractor not to summarize unseen sections.
 
+For long books with many generated packets, add a packet-cycle planning step before any extraction:
+
+```bash
+python -m belief_dashboard.cli plan-source-packet-cycle \
+  --source-id SRC0018 \
+  --max-batch-size 10
+```
+
+The planner is report-only. It discovers packet paths from the source map or from `reports/prompt_packets/SRC####_schema_locked_packet_*.md`, classifies front matter, bibliography/index material, ambiguous packets, and substantive chapter packets, then groups them into chapter/topic batches such as Introduction, De Fide, De Homine, Existence of God, Historical Knowledge, Miracles, Self-Understanding of Jesus, Resurrection, Conclusion, and Bibliography/Index/End matter. Use the first recommended batch as a bounded extraction target, then validate, dry-run, append, and review only after human approval through the native CLI.
+
+Do not process all packets from a long book in one unattended run.
+
 Use `--packet-strategy targeted` when a review plan defers a claim because relevant sections were truncated:
 
 ```bash
