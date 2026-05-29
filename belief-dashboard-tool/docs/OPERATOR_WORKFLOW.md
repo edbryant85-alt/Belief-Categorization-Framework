@@ -8,8 +8,8 @@ This tool is a guarded CLI workflow for moving reviewed queue data into timestam
    `python -m belief_dashboard.cli inspect-workbook`
 2. Validate queues:
    `python -m belief_dashboard.cli validate-queues`
-3. Register a source and generate manual review materials:
-   `register-source`, `create-claim-template`, `generate-prompt-packet`
+3. Register a source and generate schema-locked manual extraction materials:
+   `register-source`, `create-claim-template`, `generate-extraction-workspace`
 4. For complex topics, create an evidence cluster before extraction:
    `init-cluster-queues`, `create-cluster`, `add-source-to-cluster`, `generate-cluster-triage-packet`
 5. Validate and append manual imports:
@@ -44,7 +44,7 @@ For a Discord thread, YouTube transcript, or book note source:
 ```bash
 python -m belief_dashboard.cli register-source --file data/raw_sources/example.txt --source-type discord_thread --title "Example Thread"
 python -m belief_dashboard.cli find-source example
-python -m belief_dashboard.cli generate-prompt-packet --source-id SRC0001
+python -m belief_dashboard.cli generate-extraction-workspace --source-id SRC0001
 python -m belief_dashboard.cli validate-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims.csv
 python -m belief_dashboard.cli clean-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims.csv
 python -m belief_dashboard.cli validate-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims_cleaned.csv
@@ -52,9 +52,26 @@ python -m belief_dashboard.cli append-import --type extracted_claims --file data
 python -m belief_dashboard.cli append-import --type extracted_claims --file data/manual_imports/SRC0001_extracted_claims_cleaned.csv
 ```
 
-Repeat validate, clean if needed, dry-run append, and real append for `criteria_matrix` and `proposed_updates`.
+Paste the schema-locked prompt packet into ChatGPT and save the three returned CSVs as:
 
-`find-source` is read-only and helps recover an existing `SRC####` without re-registering. `generate-prompt-packet` adds Discord speaker-attribution guidance automatically when the source type, title, or file path looks Discord-related.
+```text
+data/manual_imports/SRC0001_extracted_claims.csv
+data/manual_imports/SRC0001_criteria_matrix.csv
+data/manual_imports/SRC0001_proposed_updates.csv
+```
+
+Repeat validate, clean if needed, dry-run append, and real append for `criteria_matrix` and `proposed_updates`. Append only after all three cleaned files validate.
+
+`find-source` is read-only and helps recover an existing `SRC####` without re-registering. `generate-extraction-workspace` writes a schema-locked prompt packet plus blank CSV templates under `data/manual_imports/templates/`; use it for source extraction instead of the older `generate-prompt-packet` workflow.
+
+Use schema utilities when imports look malformed:
+
+```bash
+python -m belief_dashboard.cli show-import-schema --type extracted_claims
+python -m belief_dashboard.cli show-import-schema --type criteria_matrix
+python -m belief_dashboard.cli show-import-schema --type proposed_updates
+python -m belief_dashboard.cli diagnose-import-shape --type criteria_matrix --file data/manual_imports/SRC0001_criteria_matrix.csv
+```
 
 `clean-import` writes a separate cleaned CSV and does not change queue files. It handles common first-pass CSV issues: UTF-8 BOMs, `status=extracted`, multi-label claim types such as `metaphysical; moral; interpretive`, `review_status=needs_review`, and blank `source_book` values that can be filled from the source dossier title.
 

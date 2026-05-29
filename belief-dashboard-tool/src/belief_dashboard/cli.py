@@ -71,6 +71,14 @@ from belief_dashboard.export_verification import (
     verify_workbook_export,
     write_export_verification_reports,
 )
+from belief_dashboard.extraction_workspace import (
+    create_import_templates,
+    diagnose_import_shape,
+    generate_extraction_workspace,
+    import_schema_spec,
+    render_diagnosis,
+    render_import_schema,
+)
 from belief_dashboard.export_preview import preview_workbook_export, write_export_preview_artifacts
 from belief_dashboard.history import (
     current_workbook_status,
@@ -262,6 +270,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="config.yaml",
         help="Path to config.yaml. Defaults to ./config.yaml.",
     )
+
+    show_import_schema_parser = subparsers.add_parser(
+        "show-import-schema",
+        help="Show the exact manual import schema and allowed values for an import type.",
+    )
+    show_import_schema_parser.add_argument("--type", required=True, help="Import type, such as extracted_claims.")
+    show_import_schema_parser.add_argument(
+        "--format",
+        choices=["table", "json", "markdown"],
+        default="table",
+        help="Output format. Defaults to table.",
+    )
+    show_import_schema_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    create_templates_parser = subparsers.add_parser(
+        "create-import-templates",
+        help="Create source-specific blank manual import CSV templates using exact project schemas.",
+    )
+    create_templates_parser.add_argument("--source-id", required=True, help="Source ID, such as SRC0012.")
+    create_templates_parser.add_argument(
+        "--output-dir",
+        default="data/manual_imports/templates",
+        help="Directory for template CSVs and instructions.",
+    )
+    create_templates_parser.add_argument(
+        "--types",
+        default="extracted_claims,criteria_matrix,proposed_updates",
+        help="Comma-separated import types to create. Defaults to extracted_claims,criteria_matrix,proposed_updates.",
+    )
+    create_templates_parser.add_argument("--force", action="store_true", help="Overwrite existing template files.")
+    create_templates_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    extraction_workspace_parser = subparsers.add_parser(
+        "generate-extraction-workspace",
+        help="Create schema-locked extraction prompt packet and exact CSV templates for a source.",
+    )
+    extraction_workspace_parser.add_argument("--source-id", required=True, help="Source ID, such as SRC0012.")
+    extraction_workspace_parser.add_argument(
+        "--output-dir",
+        default="data/manual_imports/templates",
+        help="Directory for template CSVs and instructions.",
+    )
+    extraction_workspace_parser.add_argument(
+        "--max-characters",
+        type=int,
+        help="Maximum source characters to include inline. Defaults to prompt_packets.max_inline_characters.",
+    )
+    extraction_workspace_parser.add_argument("--force", action="store_true", help="Overwrite existing template files.")
+    extraction_workspace_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
+
+    diagnose_import_shape_parser = subparsers.add_parser(
+        "diagnose-import-shape",
+        help="Compare a manual import CSV header to the exact expected project schema.",
+    )
+    diagnose_import_shape_parser.add_argument("--type", required=True, help="Import type, such as criteria_matrix.")
+    diagnose_import_shape_parser.add_argument("--file", required=True, help="Manual import CSV to diagnose.")
+    diagnose_import_shape_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format. Defaults to table.")
+    diagnose_import_shape_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
     triage_packet_parser = subparsers.add_parser(
         "generate-triage-packet",
@@ -802,6 +868,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _create_claim_template_command(args)
     if args.command == "generate-prompt-packet":
         return _generate_prompt_packet_command(args)
+    if args.command == "show-import-schema":
+        return _show_import_schema_command(args)
+    if args.command == "create-import-templates":
+        return _create_import_templates_command(args)
+    if args.command == "generate-extraction-workspace":
+        return _generate_extraction_workspace_command(args)
+    if args.command == "diagnose-import-shape":
+        return _diagnose_import_shape_command(args)
     if args.command == "generate-triage-packet":
         return _generate_triage_packet_command(args)
     if args.command == "validate-import":
@@ -1100,6 +1174,87 @@ def _generate_prompt_packet_command(args: argparse.Namespace) -> int:
     print(f"Characters included: {result['characters_included']}")
     print(f"Truncated: {result['truncated']}")
     return 0
+
+
+def _show_import_schema_command(args: argparse.Namespace) -> int:
+    _config_path, config, _base_dir = _load_command_config(args)
+    try:
+        spec = import_schema_spec(args.type, config)
+    except ValueError as exc:
+        print(f"Could not show import schema: {exc}")
+        return 1
+    print(render_import_schema(spec, output_format=args.format))
+    return 0
+
+
+def _create_import_templates_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    output_dir = resolve_project_path(args.output_dir, base_dir=base_dir)
+    import_types = _parse_import_types(args.types)
+    try:
+        result = create_import_templates(
+            args.source_id,
+            queue_dir,
+            output_dir,
+            config,
+            import_types=import_types,
+            force=args.force,
+        )
+    except (QueueSetupError, SourceRegistrationError, ValueError) as exc:
+        print(f"Could not create import templates: {exc}")
+        return 1
+    print("Import templates created.")
+    print(f"Source ID: {result['source_id']}")
+    print(f"Source title: {result['source_title']}")
+    print(f"Files written: {len(result['written'])}")
+    _print_paths("written", result["written"])
+    if result["skipped"]:
+        print(f"Files skipped: {len(result['skipped'])}")
+        _print_paths("skipped", result["skipped"])
+    return 0
+
+
+def _generate_extraction_workspace_command(args: argparse.Namespace) -> int:
+    _config_path, config, base_dir = _load_command_config(args)
+    queue_dir = resolve_project_path(config["queues"]["base_dir"], base_dir=base_dir)
+    prompt_output_dir = resolve_project_path(config["prompt_packets"]["output_dir"], base_dir=base_dir)
+    template_output_dir = resolve_project_path(args.output_dir, base_dir=base_dir)
+    try:
+        result = generate_extraction_workspace(
+            args.source_id,
+            queue_dir,
+            prompt_output_dir,
+            template_output_dir,
+            config,
+            max_characters=args.max_characters,
+            force=args.force,
+        )
+    except (FileNotFoundError, QueueSetupError, SourceRegistrationError, ValueError) as exc:
+        print(f"Could not generate extraction workspace: {exc}")
+        return 1
+    print("Schema-locked extraction workspace created.")
+    print(f"Source ID: {result['source_id']}")
+    print(f"Prompt packet: {result['prompt_packet_path']}")
+    print(f"Characters included: {result['characters_included']}")
+    print(f"Truncated: {result['truncated']}")
+    _print_paths("templates", result["template_paths"])
+    print(f"Instructions: {result['instructions_path']}")
+    if result["skipped"]:
+        print(f"Files skipped: {len(result['skipped'])}")
+        _print_paths("skipped", result["skipped"])
+    return 0
+
+
+def _diagnose_import_shape_command(args: argparse.Namespace) -> int:
+    _config_path, config, _base_dir = _load_command_config(args)
+    try:
+        result = diagnose_import_shape(args.type, args.file, config)
+    except ValueError as exc:
+        print(f"Could not diagnose import shape: {exc}")
+        return 1
+    print(render_diagnosis(result, output_format=args.format))
+    return 1 if result["overall_status"] == "fail" else 0
 
 
 def _generate_triage_packet_command(args: argparse.Namespace) -> int:
@@ -2283,6 +2438,10 @@ def _print_paths(label: str, paths: list[str]) -> None:
     print(f"{label.title()} files:")
     for path in paths:
         print(f"  - {path}")
+
+
+def _parse_import_types(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def _render_sources_table(rows: list[dict[str, str]]) -> str:

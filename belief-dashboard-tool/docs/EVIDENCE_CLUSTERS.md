@@ -14,7 +14,7 @@ Use a cluster when:
 - you need a map of major arguments and objections before extraction;
 - the workbook should receive distilled evidence rather than every source individually.
 
-Use normal source-by-source extraction when a source is self-contained and already likely to produce dashboard-worthy evidence rows.
+Use normal source-by-source extraction when a source is self-contained and already likely to produce dashboard-worthy evidence rows. For source extraction, prefer `generate-extraction-workspace`; it creates an exact-schema prompt packet and blank CSV templates so ChatGPT does not invent import columns.
 
 ## Queue Files
 
@@ -115,6 +115,14 @@ List likely extraction candidates:
 ```bash
 python -m belief_dashboard.cli cluster-candidates-for-extraction --cluster-id CLUST-SIM-001
 ```
+
+Generate schema-locked extraction materials for one selected source:
+
+```bash
+python -m belief_dashboard.cli generate-extraction-workspace --source-id SRCXXXX
+```
+
+Then paste the schema-locked prompt into ChatGPT, save the three returned CSVs under `data/manual_imports/` as `SRCXXXX_extracted_claims.csv`, `SRCXXXX_criteria_matrix.csv`, and `SRCXXXX_proposed_updates.csv`, then clean, validate, and append only after all three cleaned files pass validation.
 
 ## Deciding What Gets Extracted
 
