@@ -28,6 +28,7 @@ COMMAND_POLICY: dict[str, CommandSpec] = {
     "verify-workbook-export": CommandSpec("verify-workbook-export", CommandRisk.READ_ONLY, False),
     "diagnose-import-shape": CommandSpec("diagnose-import-shape", CommandRisk.READ_ONLY, False),
     "cluster-extraction-batch": CommandSpec("cluster-extraction-batch", CommandRisk.READ_ONLY, False),
+    "packet-batch-draft": CommandSpec("packet-batch-draft", CommandRisk.INTERMEDIATE_WRITE, False),
     "generate-extraction-workspace": CommandSpec(
         "generate-extraction-workspace",
         CommandRisk.INTERMEDIATE_WRITE,

@@ -25,6 +25,7 @@ The tool avoids direct workbook changes until an explicit guarded promotion step
 - Generate printable read-only debate packets with trace appendices.
 - Generate read-only prioritized study and reflection queues.
 - Run guarded agentflow copilots for extraction QA, proposal review assistance, and export preflight.
+- Draft selected section-packet batches through guarded agentflows; see `docs/AGENTFLOWS.md#packet-batch-drafting`.
 - Run an end-to-end demo workflow using non-private sample assets.
 
 ## Quick Start

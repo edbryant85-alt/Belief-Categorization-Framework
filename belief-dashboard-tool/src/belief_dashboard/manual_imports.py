@@ -480,8 +480,11 @@ def _batch_claim_ids(
 
     ids: set[str] = set()
     for source_id in {(row.get("source_id") or "").strip() for row in rows if (row.get("source_id") or "").strip()}:
-        sibling = import_file.parent / f"{source_id}_extracted_claims.csv"
-        if sibling.exists():
+        sibling_paths = [import_file.parent / f"{source_id}_extracted_claims.csv"]
+        sibling_paths.extend(sorted(import_file.parent.glob(f"{source_id}_*_extracted_claims.csv")))
+        for sibling in sibling_paths:
+            if not sibling.exists():
+                continue
             sibling_rows, headers = _read_csv(sibling)
             if headers == QUEUE_SCHEMAS["extracted_claims"]:
                 ids.update(

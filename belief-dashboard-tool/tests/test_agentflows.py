@@ -25,6 +25,26 @@ def test_extraction_qa_valid_sample_passes(tmp_path: Path) -> None:
     assert all(command["risk"] in {"read_only"} for command in report["commands_run"])
 
 
+def test_extraction_qa_accepts_batch_file_arguments(tmp_path: Path) -> None:
+    config_path = _setup_project(tmp_path)
+    batch_dir = tmp_path / "manual_imports" / "generated_batches" / "SRC0001_intro"
+    _write_csv(batch_dir / "SRC0001_intro_extracted_claims.csv", "extracted_claims", [_claim_row("SRC0001")])
+    _write_csv(batch_dir / "SRC0001_intro_criteria_matrix.csv", "criteria_matrix", [_criteria_row("SRC0001")])
+    _write_csv(batch_dir / "SRC0001_intro_proposed_updates.csv", "proposed_updates", [_proposal_row("SRC0001")])
+
+    report = run_extraction_qa(
+        "SRC0001",
+        project_dir=tmp_path,
+        config_path=config_path,
+        extracted_claims_file=batch_dir / "SRC0001_intro_extracted_claims.csv",
+        criteria_matrix_file=batch_dir / "SRC0001_intro_criteria_matrix.csv",
+        proposed_updates_file=batch_dir / "SRC0001_intro_proposed_updates.csv",
+    )
+
+    assert report["status"] == "pass"
+    assert report["files"]["extracted_claims"].endswith("SRC0001_intro_extracted_claims.csv")
+
+
 def test_extraction_qa_missing_claim_reference_blocks(tmp_path: Path) -> None:
     config_path = _setup_project(tmp_path)
     _write_manual_imports(tmp_path, "SRC0001", proposal_claim_id="SRC0001-C999")

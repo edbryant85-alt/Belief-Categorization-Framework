@@ -23,13 +23,16 @@ def run_extraction_qa(
     config_path: str | Path = "config.yaml",
     output_format: str = "markdown",
     save: bool = False,
+    extracted_claims_file: str | Path | None = None,
+    criteria_matrix_file: str | Path | None = None,
+    proposed_updates_file: str | Path | None = None,
 ) -> dict[str, Any]:
     config = read_config(project_dir, config_path)
     imports_dir = manual_imports_dir(project_dir, config)
     files = {
-        "extracted_claims": imports_dir / f"{source_id}_extracted_claims.csv",
-        "criteria_matrix": imports_dir / f"{source_id}_criteria_matrix.csv",
-        "proposed_updates": imports_dir / f"{source_id}_proposed_updates.csv",
+        "extracted_claims": _resolve_import_file(project_dir, extracted_claims_file) if extracted_claims_file else imports_dir / f"{source_id}_extracted_claims.csv",
+        "criteria_matrix": _resolve_import_file(project_dir, criteria_matrix_file) if criteria_matrix_file else imports_dir / f"{source_id}_criteria_matrix.csv",
+        "proposed_updates": _resolve_import_file(project_dir, proposed_updates_file) if proposed_updates_file else imports_dir / f"{source_id}_proposed_updates.csv",
     }
     commands: list[CliResult] = []
     blockers: list[str] = []
@@ -97,6 +100,11 @@ def run_extraction_qa(
     if save:
         _write_reports(project_dir, "extraction_qa", source_id, report)
     return report
+
+
+def _resolve_import_file(project_dir: str | Path, file_path: str | Path) -> Path:
+    path = Path(file_path)
+    return path if path.is_absolute() else Path(project_dir) / path
 
 
 def _cleaned_path(file_path: Path) -> Path:

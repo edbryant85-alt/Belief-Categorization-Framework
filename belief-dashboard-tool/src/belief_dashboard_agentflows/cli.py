@@ -12,6 +12,10 @@ from belief_dashboard_agentflows.flows.cluster_extraction_batch import (
 )
 from belief_dashboard_agentflows.flows.export_preflight import run_export_preflight
 from belief_dashboard_agentflows.flows.extraction_qa import run_extraction_qa
+from belief_dashboard_agentflows.flows.packet_batch_draft import (
+    render_packet_batch_draft_markdown,
+    run_packet_batch_draft,
+)
 from belief_dashboard_agentflows.flows.proposal_review_assistant import build_proposal_review_cards
 from belief_dashboard_agentflows.git_policy import (
     assert_clean_worktree_at_start,
@@ -30,6 +34,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     qa_parser = subparsers.add_parser("extraction-qa", help="Run guarded QA for one source import batch.")
     _add_common_args(qa_parser)
     qa_parser.add_argument("--source-id", required=True)
+    qa_parser.add_argument("--extracted-claims-file")
+    qa_parser.add_argument("--criteria-matrix-file")
+    qa_parser.add_argument("--proposed-updates-file")
+
+    packet_batch_parser = subparsers.add_parser("packet-batch-draft", help="Draft guarded manual-import CSVs for one selected source packet batch.")
+    _add_common_args(packet_batch_parser)
+    packet_batch_parser.add_argument("--source-id", required=True)
+    packet_batch_parser.add_argument("--batch-name", default="")
+    packet_batch_parser.add_argument("--packet-id", action="append", default=[])
+    packet_batch_parser.add_argument("--packet-cycle-group")
+    packet_batch_parser.add_argument("--overwrite", action="store_true")
 
     review_parser = subparsers.add_parser("proposal-review-assistant", help="Generate proposal review cards.")
     _add_common_args(review_parser)
@@ -65,6 +80,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_path=args.config,
                 output_format=args.format,
                 save=args.save or args.auto_commit,
+                extracted_claims_file=args.extracted_claims_file,
+                criteria_matrix_file=args.criteria_matrix_file,
+                proposed_updates_file=args.proposed_updates_file,
+            )
+        elif args.command == "packet-batch-draft":
+            report = run_packet_batch_draft(
+                source_id=args.source_id,
+                batch_name=args.batch_name,
+                packet_ids=args.packet_id,
+                packet_cycle_group=args.packet_cycle_group,
+                overwrite=args.overwrite,
+                project_dir=args.project_dir,
+                config_path=args.config,
             )
         elif args.command == "proposal-review-assistant":
             report = build_proposal_review_cards(
@@ -103,7 +131,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _auto_commit(args.repo_dir, report, args.command, source_label)
 
         print(_render_report(report, args.format))
-        return 0 if report.get("status") in {"pass", "ready", "in_progress"} else 1
+        return 0 if report.get("status") in {"pass", "passed", "ready", "in_progress"} else 1
     except PermissionError as exc:
         print(f"Permission denied: {exc}")
         return 2
@@ -141,6 +169,8 @@ def _render_report(report: dict[str, Any], output_format: str) -> str:
         return json.dumps(report, indent=2)
     if report.get("flow") == "cluster-extraction-batch":
         return render_cluster_batch_markdown(report)
+    if report.get("flow") == "packet-batch-draft":
+        return render_packet_batch_draft_markdown(report)
     return render_markdown(report)
 
 

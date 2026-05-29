@@ -98,6 +98,47 @@ The current `--auto-commit` option is intentionally conservative. It refuses to 
 - duplicate-risk notes for IDs already present in target queues;
 - recommended next action for each source.
 
+## Packet Batch Drafting
+
+`packet-batch-draft` creates guarded first-pass manual-import CSV drafts for one explicitly selected section-packet batch. It is an intermediate-write workflow: it may write generated CSV drafts, copied manual-import-ready batch files, validation/QA/dry-run report snippets, markdown/JSON run reports, and a zip artifact. It must not append queues, review proposals, export or verify workbooks with mutation, promote, roll back, commit, or push.
+
+SRC0018 first-batch MVP:
+
+```bash
+python -m belief_dashboard_agentflows.cli packet-batch-draft \
+  --source-id SRC0018 \
+  --batch-name "Introduction / What Good Is Apologetics" \
+  --packet-id SRC0018-PKT-002 \
+  --packet-id SRC0018-PKT-003 \
+  --packet-id SRC0018-PKT-004
+```
+
+Convenience alias for this MVP batch:
+
+```bash
+python -m belief_dashboard_agentflows.cli packet-batch-draft \
+  --source-id SRC0018 \
+  --packet-cycle-group "Introduction / What Good Is Apologetics"
+```
+
+Outputs:
+
+- `reports/agentflow_runs/SRC0018_intro_apologetics_batch/generated/`
+- `data/manual_imports/generated_batches/SRC0018_intro_apologetics/`
+- `reports/agentflow_runs/SRC0018_intro_apologetics_batch/packet_batch_draft_report.md`
+- `reports/agentflow_runs/SRC0018_intro_apologetics_batch/packet_batch_draft_report.json`
+- `reports/agentflow_runs/SRC0018_intro_apologetics_batch/SRC0018_intro_apologetics_batch_artifacts.zip`
+
+Review the generated CSVs before any real append. A safe review sequence is:
+
+```bash
+python -m belief_dashboard.cli validate-import --type extracted_claims --file data/manual_imports/generated_batches/SRC0018_intro_apologetics/SRC0018_intro_apologetics_extracted_claims.csv
+python -m belief_dashboard.cli validate-import --type criteria_matrix --file data/manual_imports/generated_batches/SRC0018_intro_apologetics/SRC0018_intro_apologetics_criteria_matrix.csv
+python -m belief_dashboard.cli validate-import --type proposed_updates --file data/manual_imports/generated_batches/SRC0018_intro_apologetics/SRC0018_intro_apologetics_proposed_updates.csv
+```
+
+Only after human review should an operator run native `append-import`, starting with `--dry-run`. The MVP is deliberately scoped to three introduction packets and does not process all 116 SRC0018 packets.
+
 ## Cluster Batch Workflow
 
 Use the batch controller for repeatable 10-25 source passes through a cluster:
