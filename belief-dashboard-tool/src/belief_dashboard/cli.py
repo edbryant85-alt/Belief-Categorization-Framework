@@ -317,6 +317,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         help="Maximum source characters to include inline. Defaults to prompt_packets.max_inline_characters.",
     )
+    extraction_workspace_parser.add_argument(
+        "--max-chars-per-packet",
+        type=int,
+        help="Maximum source characters per section packet. Alias for --max-characters.",
+    )
+    extraction_workspace_parser.add_argument(
+        "--packet-strategy",
+        choices=["first", "section", "targeted"],
+        default="first",
+        help="Prompt packet strategy. Defaults to first, preserving the original first-N-characters behavior.",
+    )
+    extraction_workspace_parser.add_argument(
+        "--include-heading",
+        action="append",
+        default=[],
+        help="Heading or keyword to include in targeted packet mode. Can be repeated.",
+    )
     extraction_workspace_parser.add_argument("--force", action="store_true", help="Overwrite existing template files.")
     extraction_workspace_parser.add_argument("--config", default="config.yaml", help="Path to config.yaml. Defaults to ./config.yaml.")
 
@@ -1227,7 +1244,9 @@ def _generate_extraction_workspace_command(args: argparse.Namespace) -> int:
             prompt_output_dir,
             template_output_dir,
             config,
-            max_characters=args.max_characters,
+            max_characters=args.max_chars_per_packet or args.max_characters,
+            packet_strategy=args.packet_strategy,
+            include_headings=args.include_heading,
             force=args.force,
         )
     except (FileNotFoundError, QueueSetupError, SourceRegistrationError, ValueError) as exc:
@@ -1235,8 +1254,14 @@ def _generate_extraction_workspace_command(args: argparse.Namespace) -> int:
         return 1
     print("Schema-locked extraction workspace created.")
     print(f"Source ID: {result['source_id']}")
+    print(f"Packet strategy: {result['packet_strategy']}")
     print(f"Prompt packet: {result['prompt_packet_path']}")
+    if len(result.get("prompt_packet_paths", [])) > 1:
+        _print_paths("prompt packets", result["prompt_packet_paths"])
+    if result.get("source_map_path"):
+        print(f"Source map: {result['source_map_path']}")
     print(f"Characters included: {result['characters_included']}")
+    print(f"Total source characters: {result.get('total_source_characters', result['characters_included'])}")
     print(f"Truncated: {result['truncated']}")
     _print_paths("templates", result["template_paths"])
     print(f"Instructions: {result['instructions_path']}")

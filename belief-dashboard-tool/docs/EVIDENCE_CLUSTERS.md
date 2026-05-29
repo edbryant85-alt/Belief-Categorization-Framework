@@ -132,6 +132,30 @@ Generate schema-locked extraction materials for one selected source:
 python -m belief_dashboard.cli generate-extraction-workspace --source-id SRC0012
 ```
 
+Use `--packet-strategy first` for short sources where the default first inline packet covers the relevant source text. Use `--packet-strategy section` for long scholarly articles:
+
+```bash
+python -m belief_dashboard.cli generate-extraction-workspace \
+  --source-id SRC0014 \
+  --packet-strategy section \
+  --max-chars-per-packet 12000 \
+  --force
+```
+
+Section mode writes multiple schema-locked packets plus a source map under `reports/prompt_packets/`. Each packet is scoped to a coherent heading/page range and instructs the extractor not to summarize unseen sections.
+
+Use `--packet-strategy targeted` when a review plan defers a claim because relevant sections were truncated:
+
+```bash
+python -m belief_dashboard.cli generate-extraction-workspace \
+  --source-id SRC0014 \
+  --packet-strategy targeted \
+  --include-heading "Neoplatonism" \
+  --force
+```
+
+Do not approve broad roadmap claims from abstract-only evidence when detailed sections are absent. Defer those rows until a targeted or section packet has been processed.
+
 Then paste the schema-locked prompt into ChatGPT, save the three returned CSVs under `data/manual_imports/` as `SRC0012_extracted_claims.csv`, `SRC0012_criteria_matrix.csv`, and `SRC0012_proposed_updates.csv`, then clean, validate, and append only after all three cleaned files pass validation.
 
 ## Deciding What Gets Extracted

@@ -67,6 +67,36 @@ Repeat validate, clean if needed, dry-run append, and real append for `criteria_
 
 `find-source` is read-only and helps recover an existing `SRC####` without re-registering. `generate-extraction-workspace` writes a schema-locked prompt packet plus blank CSV templates under `data/manual_imports/templates/`; use it for source extraction instead of the older `generate-prompt-packet` workflow.
 
+For short sources, keep the default first-packet strategy:
+
+```bash
+python -m belief_dashboard.cli generate-extraction-workspace \
+  --source-id SRC0001 \
+  --packet-strategy first
+```
+
+For long scholarly articles, prefer section-aware packets so later sections are not silently omitted:
+
+```bash
+python -m belief_dashboard.cli generate-extraction-workspace \
+  --source-id SRC0014 \
+  --packet-strategy section \
+  --max-chars-per-packet 12000 \
+  --force
+```
+
+For deferred review items caused by a truncated packet, generate a targeted packet around the missing section:
+
+```bash
+python -m belief_dashboard.cli generate-extraction-workspace \
+  --source-id SRC0014 \
+  --packet-strategy targeted \
+  --include-heading "Neoplatonism" \
+  --force
+```
+
+Defer claims that depend on missing sections until a section or targeted packet has been processed. Do not approve broad roadmap claims from abstract-only evidence when the detailed source sections are absent.
+
 Use schema utilities when imports look malformed:
 
 ```bash

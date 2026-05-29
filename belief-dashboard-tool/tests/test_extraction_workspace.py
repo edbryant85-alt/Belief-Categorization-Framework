@@ -112,6 +112,139 @@ def test_generate_extraction_workspace_creates_schema_locked_prompt(tmp_path: Pa
     assert ",".join(QUEUE_SCHEMAS["proposed_updates"]) in prompt_text
 
 
+def test_generate_extraction_workspace_default_first_strategy_preserves_existing_behavior(tmp_path: Path) -> None:
+    config, queue_dir, source_id = _setup_source(tmp_path)
+
+    result = generate_extraction_workspace(
+        source_id,
+        queue_dir,
+        tmp_path / "prompt_packets",
+        tmp_path / "templates",
+        config,
+        generated_at=datetime(2026, 5, 28, 12, 0, 0),
+    )
+
+    assert result["packet_strategy"] == "first"
+    assert result["prompt_packet_path"].endswith(f"{source_id}_schema_locked_prompt_packet_2026-05-28_120000.md")
+    assert result["prompt_packet_paths"] == [result["prompt_packet_path"]]
+    assert result["source_map_path"] == ""
+
+
+def test_section_strategy_creates_multiple_packets_for_long_markdown_source(tmp_path: Path) -> None:
+    config, queue_dir, source_id = _setup_source(tmp_path, source_text=_long_sectioned_source())
+
+    result = generate_extraction_workspace(
+        source_id,
+        queue_dir,
+        tmp_path / "prompt_packets",
+        tmp_path / "templates",
+        config,
+        max_characters=450,
+        packet_strategy="section",
+        generated_at=datetime(2026, 5, 28, 12, 0, 0),
+    )
+
+    assert len(result["prompt_packet_paths"]) > 1
+    assert all("schema_locked_packet" in Path(path).name for path in result["prompt_packet_paths"])
+
+
+def test_section_strategy_creates_source_map_with_packet_ids_and_ranges(tmp_path: Path) -> None:
+    config, queue_dir, source_id = _setup_source(tmp_path, source_text=_long_sectioned_source())
+
+    result = generate_extraction_workspace(
+        source_id,
+        queue_dir,
+        tmp_path / "prompt_packets",
+        tmp_path / "templates",
+        config,
+        max_characters=450,
+        packet_strategy="section",
+    )
+
+    source_map = Path(result["source_map_path"]).read_text(encoding="utf-8")
+    assert f"# Source Map for {source_id}" in source_map
+    assert f"{source_id}-PKT-001" in source_map
+    assert "character_range" in source_map
+    assert "Recommended Extraction Order" in source_map
+
+
+def test_section_packet_includes_exact_schemas_metadata_and_packet_id(tmp_path: Path) -> None:
+    config, queue_dir, source_id = _setup_source(tmp_path, source_text=_long_sectioned_source())
+
+    result = generate_extraction_workspace(
+        source_id,
+        queue_dir,
+        tmp_path / "prompt_packets",
+        tmp_path / "templates",
+        config,
+        max_characters=450,
+        packet_strategy="section",
+    )
+
+    packet_text = Path(result["prompt_packet_paths"][0]).read_text(encoding="utf-8")
+    assert "## Packet Metadata" in packet_text
+    assert f"- Packet ID: {source_id}-PKT-001" in packet_text
+    assert "Extract claims only from the source text included in this packet." in packet_text
+    assert ",".join(QUEUE_SCHEMAS["extracted_claims"]) in packet_text
+    assert ",".join(QUEUE_SCHEMAS["criteria_matrix"]) in packet_text
+    assert ",".join(QUEUE_SCHEMAS["proposed_updates"]) in packet_text
+
+
+def test_section_packet_includes_only_selected_section_text(tmp_path: Path) -> None:
+    config, queue_dir, source_id = _setup_source(tmp_path, source_text=_long_sectioned_source())
+
+    result = generate_extraction_workspace(
+        source_id,
+        queue_dir,
+        tmp_path / "prompt_packets",
+        tmp_path / "templates",
+        config,
+        max_characters=450,
+        packet_strategy="section",
+    )
+
+    first_packet_text = Path(result["prompt_packet_paths"][0]).read_text(encoding="utf-8")
+    assert "Introduction marker alpha" in first_packet_text
+    assert "Neoplatonism marker gamma" not in first_packet_text
+
+
+def test_targeted_strategy_includes_matching_heading_text(tmp_path: Path) -> None:
+    config, queue_dir, source_id = _setup_source(tmp_path, source_text=_long_sectioned_source())
+
+    result = generate_extraction_workspace(
+        source_id,
+        queue_dir,
+        tmp_path / "prompt_packets",
+        tmp_path / "templates",
+        config,
+        max_characters=900,
+        packet_strategy="targeted",
+        include_headings=["Neoplatonism"],
+    )
+
+    packet_text = "\n".join(Path(path).read_text(encoding="utf-8") for path in result["prompt_packet_paths"])
+    assert "Neoplatonism marker gamma" in packet_text
+    assert "Introduction marker alpha" not in packet_text
+
+
+def test_section_mode_does_not_silently_omit_later_sections(tmp_path: Path) -> None:
+    config, queue_dir, source_id = _setup_source(tmp_path, source_text=_long_sectioned_source())
+
+    result = generate_extraction_workspace(
+        source_id,
+        queue_dir,
+        tmp_path / "prompt_packets",
+        tmp_path / "templates",
+        config,
+        max_characters=450,
+        packet_strategy="section",
+    )
+
+    all_packet_text = "\n".join(Path(path).read_text(encoding="utf-8") for path in result["prompt_packet_paths"])
+    assert "Design marker beta" in all_packet_text
+    assert "Neoplatonism marker gamma" in all_packet_text
+
+
 def test_schema_locked_prompt_includes_allowed_values(tmp_path: Path) -> None:
     config, queue_dir, source_id = _setup_source(tmp_path)
     result = generate_extraction_workspace(source_id, queue_dir, tmp_path / "prompts", tmp_path / "templates", config)
@@ -134,12 +267,12 @@ def test_diagnose_import_shape_detects_wrong_headers(tmp_path: Path) -> None:
     assert result["known_wrong_schema_pattern"]
 
 
-def _setup_source(tmp_path: Path) -> tuple[dict, Path, str]:
+def _setup_source(tmp_path: Path, *, source_text: str = "# Example Source\n\nA sample claim.") -> tuple[dict, Path, str]:
     config = load_config("config.yaml")
     queue_dir = tmp_path / "queues"
     init_queues(queue_dir, config)
     source_path = tmp_path / "source.md"
-    source_path.write_text("# Example Source\n\nA sample claim.", encoding="utf-8")
+    source_path.write_text(source_text, encoding="utf-8")
     result = register_source(
         source_path,
         queue_dir,
@@ -155,3 +288,20 @@ def _setup_source(tmp_path: Path) -> tuple[dict, Path, str]:
 def _read_header(path: Path) -> list[str]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         return next(csv.reader(handle))
+
+
+def _long_sectioned_source() -> str:
+    intro = "Introduction marker alpha. " + "This opening section frames the article. " * 20
+    design = "Design marker beta. " + "This later section develops design, resurrection, and theodicy themes. " * 20
+    neoplatonism = "Neoplatonism marker gamma. " + "This final section compares simulationism, Neoplatonism, and theism. " * 20
+    return "\n\n".join(
+        [
+            "# Example Long Source",
+            "1. Introduction",
+            intro,
+            "2. Design, Resurrection, and Theodicy",
+            design,
+            "3. Neoplatonism and Theism",
+            neoplatonism,
+        ]
+    )
