@@ -39,6 +39,19 @@ data/raw_sources/clusters/**/notes/*
 !data/raw_sources/clusters/simulation_argument/youtube/.gitkeep
 !data/raw_sources/clusters/simulation_argument/notes/
 !data/raw_sources/clusters/simulation_argument/notes/.gitkeep
+
+# Mosaic full transcript archives stay local unless explicitly approved.
+mosaic_transcripts/
+mosaic_transcripts_txt/
+mosaic_transcripts_machine/
+mosaic_source_packets_428.zip
+mosaic_transcripts_machine_428.zip
+data/external/mosaic/archive/
+data/external/mosaic/full_archive/
+data/external/mosaic/transcripts/
+data/external/mosaic/mosaic_transcripts_machine/
+data/external/mosaic/mosaic_transcripts_original/
+
 data/outputs/*.xlsx
 !data/outputs/.gitkeep
 data/backups/*.xlsx

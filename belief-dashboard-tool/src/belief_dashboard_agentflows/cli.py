@@ -10,6 +10,10 @@ from belief_dashboard_agentflows.flows.cluster_extraction_batch import (
     render_cluster_batch_markdown,
     run_cluster_extraction_batch,
 )
+from belief_dashboard_agentflows.flows.corpus_backlog import (
+    render_corpus_backlog_markdown,
+    run_corpus_backlog,
+)
 from belief_dashboard_agentflows.flows.export_preflight import run_export_preflight
 from belief_dashboard_agentflows.flows.extraction_qa import run_extraction_qa
 from belief_dashboard_agentflows.flows.packet_batch_draft import (
@@ -66,6 +70,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     cluster_parser.add_argument("--force-workspace", action="store_true")
     cluster_parser.add_argument("--include-already-imported", action="store_true")
 
+    corpus_parser = subparsers.add_parser("corpus-backlog-runner", help="Run a guarded background-safe corpus backlog report.")
+    _add_common_args(corpus_parser)
+    corpus_parser.add_argument("--corpus", action="append", default=[], help="Corpus to include. Repeatable. Use all for all supported corpora.")
+    corpus_parser.add_argument("--exclude-corpus", action="append", default=[], help="Corpus to exclude from the report.")
+    corpus_parser.add_argument("--mode", choices=["inventory", "plan", "report"], default="inventory")
+    corpus_parser.add_argument("--background-safe", action="store_true", help="Required safety acknowledgement for backlog reporting.")
+
     args = parser.parse_args(argv)
     try:
         if args.auto_commit:
@@ -111,7 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_workbook=args.output_workbook,
                 save=args.save or args.auto_commit,
             )
-        else:
+        elif args.command == "cluster-extraction-batch":
             report = run_cluster_extraction_batch(
                 cluster_id=args.cluster_id,
                 project_dir=args.project_dir,
@@ -122,6 +133,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 force_workspace=args.force_workspace,
                 include_already_imported=args.include_already_imported,
                 save=True,
+            )
+        else:
+            report = run_corpus_backlog(
+                corpora=args.corpus,
+                mode=args.mode,
+                background_safe=args.background_safe,
+                exclude_corpora=args.exclude_corpus,
+                project_dir=args.project_dir,
             )
 
         if args.auto_commit:
@@ -167,6 +186,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
 def _render_report(report: dict[str, Any], output_format: str) -> str:
     if output_format == "json":
         return json.dumps(report, indent=2)
+    if report.get("flow") == "corpus-backlog-runner":
+        return render_corpus_backlog_markdown(report)
     if report.get("flow") == "cluster-extraction-batch":
         return render_cluster_batch_markdown(report)
     if report.get("flow") == "packet-batch-draft":

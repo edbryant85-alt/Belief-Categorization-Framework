@@ -12,35 +12,49 @@ This tool is a guarded CLI workflow for moving reviewed queue data into timestam
    `register-source`, `create-claim-template`, `generate-extraction-workspace`
 4. For complex topics, create an evidence cluster before extraction:
    `init-cluster-queues`, `create-cluster`, `add-source-to-cluster`, `generate-cluster-triage-packet`
-5. For larger clusters, run guarded batch passes before real append:
+5. For large backlog catch-up, run a background-safe corpus inventory before choosing extraction work:
+   `python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus all --mode report --background-safe`
+6. For larger clusters, run guarded batch passes before real append:
    `python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --mode prepare`,
    then `--mode qa`, then `--mode dry-run`
-6. Validate and append manual imports:
+7. Validate and append manual imports:
    `validate-import`, optionally `clean-import`, then `append-import`
-7. Review proposals:
+8. Review proposals:
    `list-proposals`, optionally `batch-review-guide`, then `approve-proposal`, `reject-proposal`, or `defer-proposal`
-8. Preview export:
+9. Preview export:
    `python -m belief_dashboard.cli preview-workbook-export`
-9. Dry-run or apply export to a timestamped output copy:
+10. Dry-run or apply export to a timestamped output copy:
    `python -m belief_dashboard.cli apply-approved-to-workbook --dry-run`
-10. Verify output workbook:
+11. Verify output workbook:
    `python -m belief_dashboard.cli verify-workbook-export --workbook data/outputs/...xlsx`
-11. Compose promotion command:
+12. Compose promotion command:
    `python -m belief_dashboard.cli compose-promote-command --latest`
-12. Run operator preflight:
+13. Run operator preflight:
    `python -m belief_dashboard.cli operator-preflight --mode before-promotion`
-13. Run doctor if anything is unclear or blocked:
+14. Run doctor if anything is unclear or blocked:
    `python -m belief_dashboard.cli doctor --mode before-promotion`
-14. Generate debate-prep summaries from approved records:
+15. Generate debate-prep summaries from approved records:
    `python -m belief_dashboard.cli debate-summary --hypothesis EC`
-15. Generate a fuller printable debate packet:
+16. Generate a fuller printable debate packet:
    `python -m belief_dashboard.cli debate-packet --hypothesis EC`
-16. Generate a prioritized study/reflection queue:
+17. Generate a prioritized study/reflection queue:
    `python -m belief_dashboard.cli study-queue`
 
 Promotion and rollback remain explicit guarded commands. Command composition and preflight do not execute them.
 
 ## Real Source Intake
+
+For background-safe backlog orientation across Mosaic sermons, YouTube transcripts/watch history, Reasonable Faith, and related theology/apologetics folders, run:
+
+```bash
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus mosaic --mode inventory --background-safe
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus reasonable_faith --mode plan --background-safe
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus youtube --mode inventory --background-safe
+```
+
+Review the markdown and JSON outputs under `reports/agentflow_runs/corpus_backlog/`. These reports are designed for safe background catch-up while the user is away: they identify staged batches, registered and unregistered candidates, generated CSV batches, packet plans, and human review inbox items. They do not register sources, append queues, approve/reject/defer proposals, export or verify workbooks with mutation, promote, roll back, commit, or push.
+
+Prophecy files are explicitly out of scope for this backlog runner. Do not use this workflow to process prophecy documents, create prophecy clusters, or register/stage prophecy files.
 
 For a Discord thread, YouTube transcript, or book note source:
 

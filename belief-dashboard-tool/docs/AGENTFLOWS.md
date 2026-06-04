@@ -29,6 +29,7 @@ python -m belief_dashboard_agentflows.cli extraction-qa --source-id SRC0012
 python -m belief_dashboard_agentflows.cli proposal-review-assistant --source-id SRC0012
 python -m belief_dashboard_agentflows.cli export-preflight
 python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode report
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus mosaic --mode inventory --background-safe
 ```
 
 Save reports under `reports/agentflows/`:
@@ -98,6 +99,15 @@ The current `--auto-commit` option is intentionally conservative. It refuses to 
 - duplicate-risk notes for IDs already present in target queues;
 - recommended next action for each source.
 
+`corpus-backlog-runner` reports:
+
+- selected corpus inventory for Mosaic, YouTube transcript/watch-history, SRC0018 Reasonable Faith, and general theology/apologetics folders;
+- registered and unregistered source candidates;
+- existing clusters, packet plans, generated CSV batches, validation reports, and QA reports;
+- a human review inbox for batches needing review or repair;
+- recommended next safe processing batches;
+- explicit exclusion of prophecy files and prophecy corpora.
+
 ## Packet Batch Drafting
 
 `packet-batch-draft` creates guarded first-pass manual-import CSV drafts for one explicitly selected section-packet batch. It is an intermediate-write workflow: it may write generated CSV drafts, copied manual-import-ready batch files, validation/QA/dry-run report snippets, markdown/JSON run reports, and a zip artifact. It must not append queues, review proposals, export or verify workbooks with mutation, promote, roll back, commit, or push.
@@ -157,6 +167,43 @@ Modes:
 - `dry-run`: runs QA/validation and uses `append-import --dry-run` only when all three required CSVs validate.
 
 The batch controller does not perform real append, proposal review, workbook export, workbook verification, promotion, rollback, git commit, or git push.
+
+## Corpus Backlog Runner
+
+Use the backlog runner when the user wants background-safe catch-up work while staying before queue/workbook mutation:
+
+```bash
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner \
+  --corpus mosaic \
+  --mode inventory \
+  --background-safe
+
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner \
+  --corpus reasonable_faith \
+  --mode plan \
+  --background-safe
+
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner \
+  --corpus youtube \
+  --mode inventory \
+  --background-safe
+```
+
+Implemented safe modes:
+
+- `inventory`: discover registered sources, likely candidate files, staged folders, and generated batches.
+- `plan`: inventory plus next-batch recommendations from existing plans and generated artifacts.
+- `report`: consolidated backlog dashboard.
+
+Use repeatable `--corpus` for multiple corpora, or `--corpus all` for the supported MVP set. Use `--exclude-corpus NAME` to keep a corpus out of a run. Prophecy is excluded by default and is not registered, triaged, packetized, staged, clustered, extracted, or appended by this runner.
+
+Reports are always written under:
+
+```text
+reports/agentflow_runs/corpus_backlog/
+```
+
+The runner writes only markdown and JSON backlog reports. It does not register sources, mutate queues, append imports, approve/reject/defer proposals, export or verify workbooks with mutation, promote, roll back, commit, or push. Real append/export/review remains human-controlled through the native guarded CLI.
 
 Recommended larger-cluster sequence:
 

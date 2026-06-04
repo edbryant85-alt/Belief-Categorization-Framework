@@ -35,6 +35,13 @@ def test_packet_batch_draft_is_intermediate_write() -> None:
     assert not spec.requires_human_confirmation
 
 
+def test_corpus_backlog_runner_is_intermediate_write() -> None:
+    spec = resolve_command_policy(["corpus-backlog-runner", "--corpus", "mosaic", "--background-safe"])
+
+    assert spec.risk == CommandRisk.INTERMEDIATE_WRITE
+    assert not spec.requires_human_confirmation
+
+
 def test_promotion_and_rollback_remain_promotion() -> None:
     promote = resolve_command_policy(["promote-output-workbook", "--workbook", "output.xlsx"])
     rollback = resolve_command_policy(["rollback-workbook", "--archive", "archive.xlsx"])
