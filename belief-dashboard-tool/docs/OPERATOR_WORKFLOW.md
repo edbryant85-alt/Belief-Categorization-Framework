@@ -56,6 +56,41 @@ Review the markdown and JSON outputs under `reports/agentflow_runs/corpus_backlo
 
 Prophecy files are explicitly out of scope for this backlog runner. Do not use this workflow to process prophecy documents, create prophecy clusters, or register/stage prophecy files.
 
+## External YouTube Transcript Archive
+
+Google Drive is the source vault for YouTube transcripts, watch history, Mosaic sermon packages, and related source-processing files. The repo does not store the full archive, and Codespace cannot read the local Windows path `G:\My Drive\Belief\YT Transcripts` directly.
+
+Use `data/source_manifests/youtube_drive_archive_manifest.md` to locate expected source folders and files under:
+
+```text
+G:\My Drive\Belief\YT Transcripts
+```
+
+Operator procedure:
+
+1. Put or archive source files in Google Drive.
+2. Run Drive corpus inventory with a Drive folder ID or URL:
+
+```bash
+python -m belief_dashboard_agentflows.cli drive-corpus-inventory \
+  --drive-folder-id FOLDER_ID \
+  --corpus youtube \
+  --background-safe
+```
+
+3. Review the inventory reports under `reports/agentflow_runs/drive_inventory/`.
+4. Decide selected batches later; do not download or stage the full archive.
+5. Use future staging and packet workflows only for selected items.
+6. Keep real source registration and import append under explicit human control.
+
+After selected files are staged through a safe staging workflow, run the background-safe corpus backlog runner:
+
+```bash
+python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus youtube --mode inventory --background-safe
+```
+
+Never `git add` the whole archive or raw transcript vault. Keep raw archive material outside Git, and commit only manifests, staging scripts, source IDs, queue data, reports, and selected staged batch artifacts that are intentionally repo-side.
+
 For a Discord thread, YouTube transcript, or book note source:
 
 ```bash

@@ -5,10 +5,18 @@ Mosaic sermon transcripts are treated as `lived_belief_baseline` sources. They a
 The full Mosaic transcript archive lives outside this repo, currently under:
 
 ```text
-C:\Users\edbry\OneDrive\Documents\Belief\YT_Transcripts
+G:\My Drive\Belief\YT Transcripts\Mosaic YT Transcripts\YT_Transcripts
 ```
 
 Do not commit the full 428-sermon archive unless that has been explicitly approved. The repo should receive only bounded batch artifacts that are ready for review.
+
+Mosaic sermon files can be inventoried from Google Drive without downloading raw files:
+
+```powershell
+python -m belief_dashboard_agentflows.cli drive-corpus-inventory --drive-folder-id FOLDER_ID --corpus mosaic --background-safe
+```
+
+Use Drive inventory reports to choose selected batches. Raw archive files should remain in Drive and should not be committed.
 
 ## Safety Rules
 
@@ -56,22 +64,24 @@ The staging manifest records each copied file, its source path, destination path
 
 ## Stage Batch 1
 
-Run dry-run first from `belief-dashboard-tool`:
+The following legacy staging commands are for a local Windows checkout only, where the `G:\` Drive mount exists. Do not run them in Codespace; use `drive-corpus-inventory` there.
+
+Run dry-run first from the repo root, `belief-dashboard-tool`:
 
 ```powershell
-python .\tools\stage_mosaic_batch_artifacts.py --source-root "C:\Users\edbry\OneDrive\Documents\Belief\YT_Transcripts" --batch batch_001
+python .\tools\stage_mosaic_batch_artifacts.py --source-root "G:\My Drive\Belief\YT Transcripts\Mosaic YT Transcripts\YT_Transcripts" --batch batch_001
 ```
 
 If every required source file exists and the planned destinations look right, apply the staging copy:
 
 ```powershell
-python .\tools\stage_mosaic_batch_artifacts.py --source-root "C:\Users\edbry\OneDrive\Documents\Belief\YT_Transcripts" --batch batch_001 --apply
+python .\tools\stage_mosaic_batch_artifacts.py --source-root "G:\My Drive\Belief\YT Transcripts\Mosaic YT Transcripts\YT_Transcripts" --batch batch_001 --apply
 ```
 
 Use `--overwrite` only after reviewing existing staged files:
 
 ```powershell
-python .\tools\stage_mosaic_batch_artifacts.py --source-root "C:\Users\edbry\OneDrive\Documents\Belief\YT_Transcripts" --batch batch_001 --apply --overwrite
+python .\tools\stage_mosaic_batch_artifacts.py --source-root "G:\My Drive\Belief\YT Transcripts\Mosaic YT Transcripts\YT_Transcripts" --batch batch_001 --apply --overwrite
 ```
 
 ## Review Path

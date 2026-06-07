@@ -30,6 +30,7 @@ python -m belief_dashboard_agentflows.cli proposal-review-assistant --source-id 
 python -m belief_dashboard_agentflows.cli export-preflight
 python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode report
 python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus mosaic --mode inventory --background-safe
+python -m belief_dashboard_agentflows.cli drive-corpus-inventory --drive-folder-id FOLDER_ID --corpus youtube --background-safe
 ```
 
 Save reports under `reports/agentflows/`:
@@ -107,6 +108,67 @@ The current `--auto-commit` option is intentionally conservative. It refuses to 
 - a human review inbox for batches needing review or repair;
 - recommended next safe processing batches;
 - explicit exclusion of prophecy files and prophecy corpora.
+
+`drive-corpus-inventory` reports:
+
+- Google Drive metadata for a selected source archive folder;
+- folder/file IDs, names, relative paths when determinable, mime types, sizes, timestamps, links, and available metadata hashes;
+- provider and credential availability;
+- markdown, JSON, files JSON, and source-manifest summaries;
+- explicit confirmation that no raw archive files were downloaded and no queues, imports, proposals, or workbooks were mutated.
+
+## Drive Corpus Inventory
+
+Use Drive corpus inventory when Google Drive is the source vault and Codespace is the processing environment. Codespace cannot read a local Windows mount such as `G:\My Drive\Belief\YT Transcripts`; that path exists only on the Windows machine. The bridge inventories Google Drive through a Drive API or connector-backed provider instead of trying to open the Windows filesystem path.
+
+The MVP is inventory/report-only. It writes metadata reports and a source-manifest summary, but it does not download raw transcript files, stage batches, register sources, append imports, review proposals, export workbooks, promote, roll back, commit, or push.
+
+Examples:
+
+```bash
+python -m belief_dashboard_agentflows.cli drive-corpus-inventory \
+  --drive-folder-id FOLDER_ID \
+  --corpus youtube \
+  --background-safe
+
+python -m belief_dashboard_agentflows.cli drive-corpus-inventory \
+  --drive-folder-url "https://drive.google.com/drive/folders/FOLDER_ID" \
+  --corpus mosaic \
+  --background-safe
+```
+
+Allowed MVP corpora are `youtube`, `mosaic`, `watch_history`, `source_packets`, `manifests`, and `general`. Prophecy corpora are explicitly out of scope and are rejected.
+
+Reports are written under:
+
+```text
+reports/agentflow_runs/drive_inventory/
+```
+
+Each run writes:
+
+- `drive_corpus_inventory_report.md`
+- `drive_corpus_inventory_report.json`
+- `drive_corpus_inventory_files.json`
+- `drive_corpus_inventory_unavailable.md` when Drive access is unavailable
+- `drive_corpus_inventory_errors.json` when errors occur
+
+The matching manifest summary is written under `data/source_manifests/`, such as:
+
+```text
+data/source_manifests/youtube_drive_archive_manifest.md
+```
+
+If Drive credentials or API libraries are unavailable, the command writes an unavailable report with setup instructions instead of faking success or falling back to raw file copying.
+
+Future staging should copy only selected batches into ignored cache paths such as:
+
+```text
+data/external/drive_cache/
+data/external/drive_staging/
+```
+
+Raw archive files must remain in Google Drive and must not be committed.
 
 ## Packet Batch Drafting
 

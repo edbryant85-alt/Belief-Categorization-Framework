@@ -46,11 +46,14 @@ mosaic_transcripts_txt/
 mosaic_transcripts_machine/
 mosaic_source_packets_428.zip
 mosaic_transcripts_machine_428.zip
+**transcripts_machine**.zip
 data/external/mosaic/archive/
 data/external/mosaic/full_archive/
 data/external/mosaic/transcripts/
 data/external/mosaic/mosaic_transcripts_machine/
 data/external/mosaic/mosaic_transcripts_original/
+data/external/drive_cache/
+data/external/drive_staging/
 
 data/outputs/*.xlsx
 !data/outputs/.gitkeep
@@ -109,6 +112,7 @@ reports/artifact_navigation/*.md
 reports/artifact_navigation/*.json
 reports/operator_preflight/*.md
 reports/operator_preflight/*.json
+reports/source_archives/*.md
 !reports/manual_imports/.gitkeep
 !reports/workbook_exports/.gitkeep
 !reports/workbook_export_preview/.gitkeep

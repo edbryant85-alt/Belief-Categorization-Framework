@@ -42,6 +42,13 @@ def test_corpus_backlog_runner_is_intermediate_write() -> None:
     assert not spec.requires_human_confirmation
 
 
+def test_drive_corpus_inventory_is_intermediate_write() -> None:
+    spec = resolve_command_policy(["drive-corpus-inventory", "--drive-folder-id", "folder-id", "--corpus", "youtube"])
+
+    assert spec.risk == CommandRisk.INTERMEDIATE_WRITE
+    assert not spec.requires_human_confirmation
+
+
 def test_promotion_and_rollback_remain_promotion() -> None:
     promote = resolve_command_policy(["promote-output-workbook", "--workbook", "output.xlsx"])
     rollback = resolve_command_policy(["rollback-workbook", "--archive", "archive.xlsx"])

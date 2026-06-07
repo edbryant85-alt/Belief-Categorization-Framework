@@ -14,6 +14,10 @@ from belief_dashboard_agentflows.flows.corpus_backlog import (
     render_corpus_backlog_markdown,
     run_corpus_backlog,
 )
+from belief_dashboard_agentflows.flows.drive_corpus_inventory import (
+    render_drive_corpus_inventory_markdown,
+    run_drive_corpus_inventory,
+)
 from belief_dashboard_agentflows.flows.export_preflight import run_export_preflight
 from belief_dashboard_agentflows.flows.extraction_qa import run_extraction_qa
 from belief_dashboard_agentflows.flows.packet_batch_draft import (
@@ -77,6 +81,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     corpus_parser.add_argument("--mode", choices=["inventory", "plan", "report"], default="inventory")
     corpus_parser.add_argument("--background-safe", action="store_true", help="Required safety acknowledgement for backlog reporting.")
 
+    drive_parser = subparsers.add_parser("drive-corpus-inventory", help="Inventory a Google Drive corpus folder without downloading raw files.")
+    _add_common_args(drive_parser)
+    drive_group = drive_parser.add_mutually_exclusive_group(required=True)
+    drive_group.add_argument("--drive-folder-id")
+    drive_group.add_argument("--drive-folder-url")
+    drive_parser.add_argument("--corpus", required=True)
+    drive_parser.add_argument("--background-safe", action="store_true", help="Required safety acknowledgement for Drive inventory.")
+    drive_parser.add_argument("--max-depth", type=int, default=10)
+    drive_parser.add_argument("--max-items", type=int, default=5000)
+    drive_parser.add_argument("--include-trashed", action="store_true")
+    drive_parser.add_argument("--output-root", default="reports/agentflow_runs/drive_inventory")
+    drive_parser.add_argument("--manifest-path")
+    drive_parser.add_argument("--overwrite", action="store_true")
+    drive_parser.add_argument("--json-only", action="store_true")
+    drive_parser.add_argument("--markdown-only", action="store_true")
+
     args = parser.parse_args(argv)
     try:
         if args.auto_commit:
@@ -134,12 +154,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 include_already_imported=args.include_already_imported,
                 save=True,
             )
-        else:
+        elif args.command == "corpus-backlog-runner":
             report = run_corpus_backlog(
                 corpora=args.corpus,
                 mode=args.mode,
                 background_safe=args.background_safe,
                 exclude_corpora=args.exclude_corpus,
+                project_dir=args.project_dir,
+            )
+        else:
+            report = run_drive_corpus_inventory(
+                drive_folder_id=args.drive_folder_id,
+                drive_folder_url=args.drive_folder_url,
+                corpus=args.corpus,
+                background_safe=args.background_safe,
+                max_depth=args.max_depth,
+                max_items=args.max_items,
+                include_trashed=args.include_trashed,
+                output_root=args.output_root,
+                manifest_path=args.manifest_path,
+                overwrite=args.overwrite,
+                json_only=args.json_only,
+                markdown_only=args.markdown_only,
                 project_dir=args.project_dir,
             )
 
@@ -192,6 +228,8 @@ def _render_report(report: dict[str, Any], output_format: str) -> str:
         return render_cluster_batch_markdown(report)
     if report.get("flow") == "packet-batch-draft":
         return render_packet_batch_draft_markdown(report)
+    if report.get("flow") == "drive-corpus-inventory":
+        return render_drive_corpus_inventory_markdown(report)
     return render_markdown(report)
 
 

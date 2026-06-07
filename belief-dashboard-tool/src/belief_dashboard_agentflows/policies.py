@@ -29,6 +29,7 @@ COMMAND_POLICY: dict[str, CommandSpec] = {
     "diagnose-import-shape": CommandSpec("diagnose-import-shape", CommandRisk.READ_ONLY, False),
     "cluster-extraction-batch": CommandSpec("cluster-extraction-batch", CommandRisk.READ_ONLY, False),
     "corpus-backlog-runner": CommandSpec("corpus-backlog-runner", CommandRisk.INTERMEDIATE_WRITE, False),
+    "drive-corpus-inventory": CommandSpec("drive-corpus-inventory", CommandRisk.INTERMEDIATE_WRITE, False),
     "packet-batch-draft": CommandSpec("packet-batch-draft", CommandRisk.INTERMEDIATE_WRITE, False),
     "generate-extraction-workspace": CommandSpec(
         "generate-extraction-workspace",
