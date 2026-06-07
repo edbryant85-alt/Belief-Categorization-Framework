@@ -161,6 +161,32 @@ data/source_manifests/youtube_drive_archive_manifest.md
 
 If Drive credentials or API libraries are unavailable, the command writes an unavailable report with setup instructions instead of faking success or falling back to raw file copying.
 
+Before a real inventory run from Codespace, install optional Drive metadata dependencies:
+
+```bash
+python -m pip install -e ".[drive]"
+```
+
+Then check dependency and credential status without reading secrets:
+
+```bash
+python -m belief_dashboard_agentflows.cli drive-auth-check
+```
+
+For Application Default Credentials, authenticate in the Codespace environment:
+
+```bash
+gcloud auth application-default login
+```
+
+For service account credentials, keep the JSON file outside Git and point the environment variable at it:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+If using a service account, share the Drive source folder with the service account email. The auth check reports whether dependencies are installed, whether `GOOGLE_APPLICATION_CREDENTIALS` is set, whether the referenced file exists, and whether Drive service construction succeeds. It never prints credential contents.
+
 Future staging should copy only selected batches into ignored cache paths such as:
 
 ```text
@@ -168,7 +194,7 @@ data/external/drive_cache/
 data/external/drive_staging/
 ```
 
-Raw archive files must remain in Google Drive and must not be committed.
+Raw archive files and credential files must remain outside Git and must not be committed. Staging/downloading raw files is future work; the current bridge is metadata-only.
 
 ## Packet Batch Drafting
 

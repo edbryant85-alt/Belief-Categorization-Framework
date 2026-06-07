@@ -15,7 +15,9 @@ from belief_dashboard_agentflows.flows.corpus_backlog import (
     run_corpus_backlog,
 )
 from belief_dashboard_agentflows.flows.drive_corpus_inventory import (
+    render_drive_auth_check_markdown,
     render_drive_corpus_inventory_markdown,
+    run_drive_auth_check,
     run_drive_corpus_inventory,
 )
 from belief_dashboard_agentflows.flows.export_preflight import run_export_preflight
@@ -90,12 +92,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     drive_parser.add_argument("--background-safe", action="store_true", help="Required safety acknowledgement for Drive inventory.")
     drive_parser.add_argument("--max-depth", type=int, default=10)
     drive_parser.add_argument("--max-items", type=int, default=5000)
+    drive_parser.add_argument("--max-files", type=int)
     drive_parser.add_argument("--include-trashed", action="store_true")
     drive_parser.add_argument("--output-root", default="reports/agentflow_runs/drive_inventory")
     drive_parser.add_argument("--manifest-path")
     drive_parser.add_argument("--overwrite", action="store_true")
     drive_parser.add_argument("--json-only", action="store_true")
     drive_parser.add_argument("--markdown-only", action="store_true")
+
+    auth_parser = subparsers.add_parser("drive-auth-check", help="Check Google Drive API dependency and credential availability without reading secrets.")
+    _add_common_args(auth_parser)
 
     args = parser.parse_args(argv)
     try:
@@ -162,7 +168,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exclude_corpora=args.exclude_corpus,
                 project_dir=args.project_dir,
             )
-        else:
+        elif args.command == "drive-corpus-inventory":
             report = run_drive_corpus_inventory(
                 drive_folder_id=args.drive_folder_id,
                 drive_folder_url=args.drive_folder_url,
@@ -170,6 +176,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 background_safe=args.background_safe,
                 max_depth=args.max_depth,
                 max_items=args.max_items,
+                max_files=args.max_files,
                 include_trashed=args.include_trashed,
                 output_root=args.output_root,
                 manifest_path=args.manifest_path,
@@ -178,6 +185,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 markdown_only=args.markdown_only,
                 project_dir=args.project_dir,
             )
+        else:
+            report = run_drive_auth_check()
 
         if args.auto_commit:
             source_label = ""
@@ -230,6 +239,8 @@ def _render_report(report: dict[str, Any], output_format: str) -> str:
         return render_packet_batch_draft_markdown(report)
     if report.get("flow") == "drive-corpus-inventory":
         return render_drive_corpus_inventory_markdown(report)
+    if report.get("flow") == "drive-auth-check":
+        return render_drive_auth_check_markdown(report)
     return render_markdown(report)
 
 

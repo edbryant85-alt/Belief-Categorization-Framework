@@ -49,6 +49,13 @@ def test_drive_corpus_inventory_is_intermediate_write() -> None:
     assert not spec.requires_human_confirmation
 
 
+def test_drive_auth_check_is_read_only() -> None:
+    spec = resolve_command_policy(["drive-auth-check"])
+
+    assert spec.risk == CommandRisk.READ_ONLY
+    assert not spec.requires_human_confirmation
+
+
 def test_promotion_and_rollback_remain_promotion() -> None:
     promote = resolve_command_policy(["promote-output-workbook", "--workbook", "output.xlsx"])
     rollback = resolve_command_policy(["rollback-workbook", "--archive", "archive.xlsx"])

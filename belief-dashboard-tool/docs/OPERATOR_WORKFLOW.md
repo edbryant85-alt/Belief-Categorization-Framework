@@ -69,7 +69,33 @@ G:\My Drive\Belief\YT Transcripts
 Operator procedure:
 
 1. Put or archive source files in Google Drive.
-2. Run Drive corpus inventory with a Drive folder ID or URL:
+2. Install optional Drive metadata dependencies when real Drive access is needed:
+
+```bash
+python -m pip install -e ".[drive]"
+```
+
+3. Configure either Application Default Credentials:
+
+```bash
+gcloud auth application-default login
+```
+
+or a service account credential file kept outside Git:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+If using a service account, share the Drive folder with the service account email.
+
+4. Check auth without printing secrets:
+
+```bash
+python -m belief_dashboard_agentflows.cli drive-auth-check
+```
+
+5. Run Drive corpus inventory with a Drive folder ID or URL:
 
 ```bash
 python -m belief_dashboard_agentflows.cli drive-corpus-inventory \
@@ -78,10 +104,10 @@ python -m belief_dashboard_agentflows.cli drive-corpus-inventory \
   --background-safe
 ```
 
-3. Review the inventory reports under `reports/agentflow_runs/drive_inventory/`.
-4. Decide selected batches later; do not download or stage the full archive.
-5. Use future staging and packet workflows only for selected items.
-6. Keep real source registration and import append under explicit human control.
+6. Review the inventory reports under `reports/agentflow_runs/drive_inventory/`.
+7. Decide selected batches later; do not download or stage the full archive.
+8. Use future staging and packet workflows only for selected items.
+9. Keep real source registration and import append under explicit human control.
 
 After selected files are staged through a safe staging workflow, run the background-safe corpus backlog runner:
 
@@ -89,7 +115,7 @@ After selected files are staged through a safe staging workflow, run the backgro
 python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus youtube --mode inventory --background-safe
 ```
 
-Never `git add` the whole archive or raw transcript vault. Keep raw archive material outside Git, and commit only manifests, staging scripts, source IDs, queue data, reports, and selected staged batch artifacts that are intentionally repo-side.
+Never `git add` the whole archive, raw transcript vault, `.env`, service-account JSON, or credential files. Keep raw archive material outside Git, and commit only manifests, staging scripts, source IDs, queue data, reports, and selected staged batch artifacts that are intentionally repo-side.
 
 For a Discord thread, YouTube transcript, or book note source:
 

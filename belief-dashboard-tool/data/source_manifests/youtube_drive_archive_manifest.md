@@ -12,6 +12,14 @@ G:\My Drive\Belief\YT Transcripts
 
 Codespace cannot read this Windows path directly. Repo-side inventory should use a Google Drive API or connector-backed archive bridge with a Drive folder ID or URL.
 
+Real Drive metadata access from Codespace requires optional dependencies and credentials. Install with:
+
+```bash
+python -m pip install -e ".[drive]"
+```
+
+Then use Application Default Credentials with `gcloud auth application-default login` or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account JSON file kept outside Git. If using a service account, share this Drive folder with the service account email.
+
 ## Purpose
 
 External source vault for YouTube transcripts, watch history, Mosaic sermon packages, and related source-processing files.
@@ -21,6 +29,8 @@ External source vault for YouTube transcripts, watch history, Mosaic sermon pack
 The raw archive stays outside Git. The repo stores manifests, staging scripts, source IDs, queue data, reports, and selected staged batch artifacts only.
 
 Do not copy the full Google Drive archive into this repo. Do not commit raw transcript archives.
+
+Do not commit `.env`, service-account JSON, Google credential JSON, or any credential contents.
 
 ## Known Likely Subfolders
 
@@ -48,22 +58,23 @@ G:\My Drive\Belief\YT Transcripts\Mosaic YT Transcripts\YT_Transcripts
 ## Safe Workflow
 
 1. Use this manifest to identify the external source vault.
-2. Run Drive corpus inventory from Codespace with `drive-corpus-inventory`.
-3. Stage only selected batches into repo-side review folders.
-4. Run background-safe inventory or corpus backlog tools after staging.
-5. Register sources, append imports, mutate queues, or touch workbooks only through explicit downstream operator steps.
+2. Run `drive-auth-check` before real inventory.
+3. Run Drive corpus inventory from Codespace with `drive-corpus-inventory`.
+4. Stage only selected batches into repo-side review folders when future staging support exists.
+5. Run background-safe inventory or corpus backlog tools after staging.
+6. Register sources, append imports, mutate queues, or touch workbooks only through explicit downstream operator steps.
 
 <!-- drive-corpus-inventory:latest:start -->
 ## Latest Drive Inventory Run
 
 - Corpus: `youtube`
 - Drive folder ID: `fake-folder-id`
-- Inventory run timestamp: `2026-06-07T17:32:44`
+- Inventory run timestamp: `2026-06-07T17:51:55`
 - Status: `unavailable`
 - Drive access available: `false`
-- Markdown report: `reports/agentflow_runs/drive_inventory/youtube_20260607_173244/drive_corpus_inventory_report.md`
-- JSON report: `reports/agentflow_runs/drive_inventory/youtube_20260607_173244/drive_corpus_inventory_report.json`
-- Files JSON: `reports/agentflow_runs/drive_inventory/youtube_20260607_173244/drive_corpus_inventory_files.json`
+- Markdown report: `reports/agentflow_runs/drive_inventory/youtube_20260607_175155/drive_corpus_inventory_report.md`
+- JSON report: `reports/agentflow_runs/drive_inventory/youtube_20260607_175155/drive_corpus_inventory_report.json`
+- Files JSON: `reports/agentflow_runs/drive_inventory/youtube_20260607_175155/drive_corpus_inventory_files.json`
 - Folders: `0`
 - Files: `0`
 - Shortcuts: `0`

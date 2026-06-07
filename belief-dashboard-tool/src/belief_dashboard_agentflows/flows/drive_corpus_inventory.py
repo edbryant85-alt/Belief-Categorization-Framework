@@ -6,6 +6,7 @@ import re
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -67,6 +68,7 @@ class DriveInventoryProvider:
         *,
         max_depth: int | None,
         max_items: int | None,
+        max_files: int | None = None,
         include_trashed: bool = False,
         corpus: str = "",
     ) -> list[DriveItem]:
@@ -117,6 +119,7 @@ class GoogleApiDriveInventoryProvider(DriveInventoryProvider):
         *,
         max_depth: int | None,
         max_items: int | None,
+        max_files: int | None = None,
         include_trashed: bool = False,
         corpus: str = "",
     ) -> list[DriveItem]:
@@ -127,6 +130,7 @@ class GoogleApiDriveInventoryProvider(DriveInventoryProvider):
             raise DriveAccessUnavailable(ProviderStatus(self.name, False, "Drive service was not initialized."))
 
         items: list[DriveItem] = []
+        file_count = 0
         queue: list[tuple[str, str, int]] = [(folder_id, "", 0)]
         truncated = False
         while queue:
@@ -158,7 +162,12 @@ class GoogleApiDriveInventoryProvider(DriveInventoryProvider):
                         truncated = True
                         break
                     item = _drive_item_from_api(raw, current_path=current_path, depth=depth + 1, corpus=corpus)
+                    if item.item_type == "file" and max_files is not None and file_count >= max_files:
+                        truncated = True
+                        break
                     items.append(item)
+                    if item.item_type == "file":
+                        file_count += 1
                     if item.item_type == "folder" and (max_depth is None or item.depth < max_depth):
                         queue.append((item.id, item.relative_path or item.name, item.depth))
                 if truncated:
@@ -177,6 +186,7 @@ def run_drive_corpus_inventory(
     background_safe: bool = False,
     max_depth: int = DEFAULT_MAX_DEPTH,
     max_items: int = DEFAULT_MAX_ITEMS,
+    max_files: int | None = None,
     include_trashed: bool = False,
     output_root: str | Path = DEFAULT_OUTPUT_ROOT,
     manifest_path: str | Path | None = None,
@@ -212,10 +222,11 @@ def run_drive_corpus_inventory(
                 parsed_folder_id,
                 max_depth=max_depth,
                 max_items=max_items,
+                max_files=max_files,
                 include_trashed=include_trashed,
                 corpus=normalized_corpus,
             )
-            items, limit_warnings = _apply_limits(raw_items, max_depth=max_depth, max_items=max_items)
+            items, limit_warnings = _apply_limits(raw_items, max_depth=max_depth, max_items=max_items, max_files=max_files)
             warnings.extend(limit_warnings)
             status = "passed"
         except DriveAccessUnavailable as exc:
@@ -242,6 +253,7 @@ def run_drive_corpus_inventory(
             background_safe=background_safe,
             max_depth=max_depth,
             max_items=max_items,
+            max_files=max_files,
             include_trashed=include_trashed,
         ),
         "working_directory": str(project_path.resolve()),
@@ -256,8 +268,10 @@ def run_drive_corpus_inventory(
         "limits": {
             "max_depth": max_depth,
             "max_items": max_items,
+            "max_files": max_files,
             "truncated_by_depth": any("max_depth" in warning for warning in warnings),
             "truncated_by_items": any("max_items" in warning for warning in warnings),
+            "truncated_by_files": any("max_files" in warning for warning in warnings),
         },
         "counts": summary["counts"],
         "size_bytes_known_total": summary["size_bytes_known_total"],
@@ -289,6 +303,68 @@ def run_drive_corpus_inventory(
     _write_manifest(manifest, report)
     report["output_files"]["manifest"] = str(manifest)
     return report
+
+
+def run_drive_auth_check(provider: GoogleApiDriveInventoryProvider | None = None) -> dict[str, Any]:
+    provider = provider or GoogleApiDriveInventoryProvider()
+    dependency_status = google_drive_dependency_status()
+    credential_status = google_drive_credential_status()
+    provider_status = provider.status()
+    status = "passed" if provider_status.available else "unavailable"
+    warnings = [] if provider_status.available else [provider_status.reason]
+    return {
+        "title": "Drive Auth Check",
+        "flow": "drive-auth-check",
+        "status": status,
+        "dependency_status": dependency_status,
+        "credential_status": credential_status,
+        "provider": asdict(provider_status),
+        "warnings": warnings,
+        "errors": [],
+        "safety": {
+            "credential_contents_printed": False,
+            "raw_archive_files_copied": False,
+            "queues_mutated": False,
+            "imports_mutated": False,
+            "proposals_mutated": False,
+            "workbook_mutated": False,
+            "committed": False,
+            "pushed": False,
+        },
+        "next_safe_steps": _auth_next_steps(provider_status.available),
+    }
+
+
+def google_drive_dependency_status() -> dict[str, Any]:
+    packages = {
+        "google_api_python_client": _module_available("googleapiclient"),
+        "google_auth": _module_available("google.auth"),
+        "google_auth_oauthlib": _module_available("google_auth_oauthlib"),
+    }
+    return {
+        "available": all(packages.values()),
+        "packages": packages,
+        "install_command": 'python -m pip install -e ".[drive]"',
+    }
+
+
+def _module_available(name: str) -> bool:
+    try:
+        return find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        return False
+
+
+def google_drive_credential_status() -> dict[str, Any]:
+    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    credentials_file = Path(credentials_path).expanduser() if credentials_path else None
+    return {
+        "google_application_credentials_set": bool(credentials_path),
+        "google_application_credentials_file_exists": bool(credentials_file and credentials_file.is_file()),
+        "google_application_credentials_path": "[redacted]" if credentials_file else "",
+        "application_default_credentials_supported": True,
+        "credential_contents_printed": False,
+    }
 
 
 def parse_drive_folder_id(url: str) -> str:
@@ -336,8 +412,10 @@ def render_drive_corpus_inventory_markdown(report: dict[str, Any]) -> str:
         f"- Total known size bytes: `{report.get('size_bytes_known_total', 0)}`",
         f"- Max depth: `{report.get('limits', {}).get('max_depth')}`",
         f"- Max items: `{report.get('limits', {}).get('max_items')}`",
+        f"- Max files: `{report.get('limits', {}).get('max_files')}`",
         f"- Truncated by depth: `{str(report.get('limits', {}).get('truncated_by_depth', False)).lower()}`",
         f"- Truncated by items: `{str(report.get('limits', {}).get('truncated_by_items', False)).lower()}`",
+        f"- Truncated by files: `{str(report.get('limits', {}).get('truncated_by_files', False)).lower()}`",
         "",
         "## Output Files",
         "",
@@ -376,6 +454,50 @@ def render_drive_corpus_inventory_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_drive_auth_check_markdown(report: dict[str, Any]) -> str:
+    dependencies = report.get("dependency_status", {})
+    credentials = report.get("credential_status", {})
+    provider = report.get("provider", {})
+    lines = [
+        "# Drive Auth Check",
+        "",
+        f"- Status: `{report.get('status', '')}`",
+        f"- Provider: `{provider.get('name', '')}`",
+        f"- Provider available: `{str(provider.get('available', False)).lower()}`",
+        f"- Provider reason: `{provider.get('reason', '')}`",
+        "",
+        "## Dependencies",
+        "",
+        f"- Dependencies available: `{str(dependencies.get('available', False)).lower()}`",
+    ]
+    for name, installed in dependencies.get("packages", {}).items():
+        lines.append(f"- {name}: `{str(installed).lower()}`")
+    lines.extend(
+        [
+            f"- Install command: `{dependencies.get('install_command', '')}`",
+            "",
+            "## Credentials",
+            "",
+            f"- GOOGLE_APPLICATION_CREDENTIALS set: `{str(credentials.get('google_application_credentials_set', False)).lower()}`",
+            f"- GOOGLE_APPLICATION_CREDENTIALS file exists: `{str(credentials.get('google_application_credentials_file_exists', False)).lower()}`",
+            f"- GOOGLE_APPLICATION_CREDENTIALS path: `{credentials.get('google_application_credentials_path', '')}`",
+            "- Credential contents printed: `false`",
+            "",
+            "## Warnings",
+            "",
+            *_bullet_lines(report.get("warnings", [])),
+            "",
+            "## Safety Confirmation",
+            "",
+        ]
+    )
+    for label, value in report.get("safety", {}).items():
+        lines.append(f"- {label}: `{str(value).lower()}`")
+    lines.extend(["", "## Next Safe Steps", ""])
+    lines.extend(_bullet_lines(report.get("next_safe_steps", [])))
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _validate_corpus(corpus: str) -> str:
     normalized = corpus.strip().lower()
     if any(marker in normalized for marker in PROPHECY_MARKERS):
@@ -385,7 +507,13 @@ def _validate_corpus(corpus: str) -> str:
     return normalized
 
 
-def _apply_limits(items: list[DriveItem], *, max_depth: int, max_items: int) -> tuple[list[DriveItem], list[str]]:
+def _apply_limits(
+    items: list[DriveItem],
+    *,
+    max_depth: int,
+    max_items: int,
+    max_files: int | None = None,
+) -> tuple[list[DriveItem], list[str]]:
     warnings: list[str] = []
     limited = items
     too_deep = [item for item in limited if item.depth > max_depth]
@@ -395,6 +523,18 @@ def _apply_limits(items: list[DriveItem], *, max_depth: int, max_items: int) -> 
     if len(limited) > max_items:
         limited = limited[:max_items]
         warnings.append(f"Inventory results were truncated by max_items={max_items}.")
+    if max_files is not None:
+        file_count = 0
+        file_limited: list[DriveItem] = []
+        for item in limited:
+            if item.item_type == "file":
+                if file_count >= max_files:
+                    continue
+                file_count += 1
+            file_limited.append(item)
+        if len(file_limited) < len(limited):
+            warnings.append(f"Inventory results were truncated by max_files={max_files}.")
+        limited = file_limited
     return limited, warnings
 
 
@@ -563,6 +703,8 @@ def _command_invocation(**kwargs: Any) -> str:
     if kwargs.get("background_safe"):
         parts.append("--background-safe")
     parts.extend(["--max-depth", str(kwargs["max_depth"]), "--max-items", str(kwargs["max_items"])])
+    if kwargs.get("max_files") is not None:
+        parts.extend(["--max-files", str(kwargs["max_files"])])
     if kwargs.get("include_trashed"):
         parts.append("--include-trashed")
     return " ".join(parts)
@@ -614,6 +756,20 @@ def _next_safe_steps(status: str) -> list[str]:
             "Do not fall back to copying the full raw archive into Git.",
         ]
     return ["Review errors, fix provider setup or folder access, and re-run the inventory command."]
+
+
+def _auth_next_steps(available: bool) -> list[str]:
+    if available:
+        return [
+            "Run drive-corpus-inventory with a real Drive folder ID or URL.",
+            "Keep inventory metadata-only and do not download raw archive files.",
+        ]
+    return [
+        'Install optional dependencies with `python -m pip install -e ".[drive]"`.',
+        "Use `gcloud auth application-default login` for ADC, or set GOOGLE_APPLICATION_CREDENTIALS to a service account JSON path.",
+        "If using a service account, share the Drive folder with the service account email.",
+        "Never commit credential files.",
+    ]
 
 
 def _bullet_lines(items: list[str]) -> list[str]:
