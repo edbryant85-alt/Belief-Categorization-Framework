@@ -26,6 +26,7 @@ The tool avoids direct workbook changes until an explicit guarded promotion step
 - Generate read-only prioritized study and reflection queues.
 - Run guarded agentflow copilots for extraction QA, proposal review assistance, and export preflight.
 - Inventory Google Drive source archive metadata through guarded agentflows; see `docs/AGENTFLOWS.md#drive-corpus-inventory`.
+- Build a guarded source-to-spreadsheet review pack from a local/synced archive root; see `docs/AGENTFLOWS.md#corpus-etl-controller`.
 - Draft selected section-packet batches through guarded agentflows; see `docs/AGENTFLOWS.md#packet-batch-drafting`.
 - Run an end-to-end demo workflow using non-private sample assets.
 

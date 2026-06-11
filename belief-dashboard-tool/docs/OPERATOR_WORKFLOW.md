@@ -44,6 +44,28 @@ Promotion and rollback remain explicit guarded commands. Command composition and
 
 ## Real Source Intake
 
+For the guarded source-to-spreadsheet ETL controller:
+
+1. Keep the raw archive in Google Drive or a synced local folder.
+2. Run `corpus-etl inventory` or `corpus-etl review-pack` against a local/synced archive root:
+
+```bash
+python -m belief_dashboard_agentflows.cli corpus-etl \
+  --archive-root "G:\My Drive\Belief\YT Transcripts" \
+  --corpus youtube \
+  --mode review-pack \
+  --background-safe
+```
+
+3. Review `corpus_etl_report.md` and `candidate_sources.csv`.
+4. Register selected sources manually or through existing guarded registration workflows.
+5. Generate packets and workspaces through existing guarded commands.
+6. Draft and validate imports through existing packet-batch and extraction QA workflows.
+7. Append only after human review, validation, and native `append-import --dry-run`.
+8. Export and promote only through the existing guarded workbook workflow.
+
+`corpus-etl` is metadata/report-only in the MVP. It does not copy the raw archive, mutate queues, mutate imports, decide proposals, mutate workbooks, commit, or push. Prophecy files and prophecy corpora are excluded.
+
 For background-safe backlog orientation across Mosaic sermons, YouTube transcripts/watch history, Reasonable Faith, and related theology/apologetics folders, run:
 
 ```bash

@@ -1,0 +1,718 @@
+from __future__ import annotations
+
+import csv
+import json
+import subprocess
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from belief_dashboard_agentflows.flows.archive_inventory import (
+    ArchiveScanLimits,
+    is_prophecy_text,
+    scan_archive_root,
+)
+from belief_dashboard_agentflows.flows.corpus_backlog import (
+    _detect_generated_batches,
+    _detect_qa_reports,
+    _detect_validation_reports,
+    _read_registered_sources,
+)
+from belief_dashboard_agentflows.flows.drive_corpus_inventory import (
+    GoogleApiDriveInventoryProvider,
+    parse_drive_folder_id,
+)
+
+
+SAFE_MODES = {"inventory", "plan", "prepare", "review-pack"}
+FUTURE_MODES = {"draft", "append-approved", "export-approved", "drive-stage", "drive-download"}
+DEFAULT_OUTPUT_ROOT = Path("reports/agentflow_runs/corpus_etl")
+CANDIDATE_FIELDS = [
+    "candidate_id",
+    "corpus",
+    "name",
+    "relative_path",
+    "absolute_path_or_archive_uri",
+    "file_extension",
+    "mime_type_or_inferred_type",
+    "size_bytes",
+    "modified_time",
+    "created_time",
+    "sha256",
+    "hash_status",
+    "content_status",
+    "is_supported_text",
+    "is_metadata_only",
+    "is_large_file",
+    "is_prophecy_excluded",
+    "detected_source_type",
+    "detected_title",
+    "detected_author",
+    "detected_date",
+    "registered_match_status",
+    "registered_source_id",
+    "registered_match_reason",
+    "cluster_suggestion",
+    "source_role_suggestion",
+    "recommended_action",
+    "duplicate_risk",
+    "priority_suggestion",
+    "recommended_next_action",
+    "warnings",
+]
+
+
+def run_corpus_etl(
+    *,
+    archive_root: str | Path | None = None,
+    drive_folder_id: str | None = None,
+    drive_folder_url: str | None = None,
+    corpus: str,
+    mode: str,
+    background_safe: bool = False,
+    max_sources: int | None = None,
+    max_depth: int = 10,
+    max_files: int = 5000,
+    large_file_threshold_mb: int = 25,
+    hash_threshold_mb: int = 10,
+    output_root: str | Path = DEFAULT_OUTPUT_ROOT,
+    overwrite: bool = False,
+    run_id: str | None = None,
+    json_only: bool = False,
+    markdown_only: bool = False,
+    project_dir: str | Path = ".",
+) -> dict[str, Any]:
+    if not archive_root and not drive_folder_id and not drive_folder_url:
+        raise ValueError("Provide one of --archive-root, --drive-folder-id, or --drive-folder-url.")
+    if is_prophecy_text(corpus):
+        raise PermissionError("Prophecy corpora are explicitly excluded from corpus-etl.")
+
+    project_path = Path(project_dir)
+    run_started_at = datetime.now().isoformat(timespec="seconds")
+    output_dir = _run_output_dir(project_path / output_root, corpus=corpus, mode=mode, run_id=run_id, overwrite=overwrite)
+    warnings: list[str] = []
+    errors: list[str] = []
+    candidates: list[dict[str, Any]] = []
+    unsupported_files: list[dict[str, Any]] = []
+    prophecy_exclusions: list[dict[str, Any]] = []
+    status = "passed"
+    refusal_reason = ""
+    limits = {
+        "max_sources": max_sources,
+        "max_depth": max_depth,
+        "max_files": max_files,
+        "large_file_threshold_mb": large_file_threshold_mb,
+        "hash_threshold_mb": hash_threshold_mb,
+        "truncated_by_max_files": False,
+        "truncated_by_max_sources": False,
+        "truncated_by_depth": False,
+    }
+
+    if mode in FUTURE_MODES:
+        status = "failed"
+        refusal_reason = (
+            f"Mode {mode} is documented for future use but is not implemented in the safe MVP. "
+            "Run inventory, plan, prepare, or review-pack instead."
+        )
+        if background_safe:
+            refusal_reason = f"Background-safe mode refuses future or mutating mode {mode}. " + refusal_reason
+        warnings.append(refusal_reason)
+    elif mode not in SAFE_MODES:
+        raise ValueError(f"Unsupported mode: {mode}")
+
+    registered_sources = _read_registered_sources(project_path)
+    existing_state = _existing_state(project_path, registered_sources)
+
+    if not refusal_reason:
+        if archive_root:
+            scan = scan_archive_root(
+                archive_root,
+                corpus=corpus,
+                limits=ArchiveScanLimits(
+                    max_sources=max_sources,
+                    max_depth=max_depth,
+                    max_files=max_files,
+                    large_file_threshold_mb=large_file_threshold_mb,
+                    hash_threshold_mb=hash_threshold_mb,
+                ),
+            )
+            candidates = _match_registered(scan.candidates, registered_sources)
+            unsupported_files = scan.unsupported_files
+            prophecy_exclusions = scan.prophecy_exclusions
+            warnings.extend(scan.warnings)
+            errors.extend(scan.errors)
+            limits["truncated_by_max_files"] = scan.truncated_by_max_files
+            limits["truncated_by_max_sources"] = scan.truncated_by_max_sources
+            limits["truncated_by_depth"] = scan.truncated_by_depth
+            root_path = Path(archive_root).expanduser()
+            if not root_path.exists():
+                status = "unavailable"
+            elif scan.errors:
+                status = "failed"
+        else:
+            status = "unavailable"
+            parsed_id = drive_folder_id or parse_drive_folder_id(drive_folder_url or "")
+            provider = GoogleApiDriveInventoryProvider()
+            provider_status = provider.status()
+            warnings.append(
+                "Drive corpus-etl is metadata-only future compatibility for the MVP; no files were downloaded. "
+                f"Parsed folder ID: {parsed_id or 'unavailable'}. Provider available: {str(provider_status.available).lower()}. "
+                f"{provider_status.reason}"
+            )
+
+    counts = _counts(candidates, unsupported_files, prophecy_exclusions, errors, warnings)
+    recommendations = _recommended_next_batches(corpus, candidates, existing_state, mode)
+    review_inbox = _human_review_inbox(candidates, existing_state, recommendations) if mode == "review-pack" and not refusal_reason else []
+    next_safe_steps = _next_safe_steps(status, mode, bool(archive_root), refusal_reason=refusal_reason)
+    report: dict[str, Any] = {
+        "title": "Corpus ETL Report",
+        "flow": "corpus-etl",
+        "status": status,
+        "command": "corpus-etl",
+        "command_invocation": _command_invocation(
+            archive_root=archive_root,
+            drive_folder_id=drive_folder_id,
+            drive_folder_url=drive_folder_url,
+            corpus=corpus,
+            mode=mode,
+            background_safe=background_safe,
+            max_sources=max_sources,
+            max_depth=max_depth,
+            max_files=max_files,
+            large_file_threshold_mb=large_file_threshold_mb,
+            hash_threshold_mb=hash_threshold_mb,
+            output_root=output_root,
+            run_id=run_id,
+            overwrite=overwrite,
+        ),
+        "working_directory": str(project_path.resolve()),
+        "git_branch": _git(project_path, ["branch", "--show-current"]) or "unknown",
+        "git_status_summary": _git_status_summary(project_path),
+        "mode": mode,
+        "corpus": corpus,
+        "archive_root": str(archive_root or ""),
+        "drive_folder_id": drive_folder_id or "",
+        "drive_folder_url": drive_folder_url or "",
+        "run_dir": str(output_dir),
+        "background_safe": background_safe,
+        "limits": limits,
+        "counts": counts,
+        "existing_state": existing_state,
+        "candidate_sources": candidates,
+        "unsupported_files": unsupported_files,
+        "output_files": {},
+        "mutations": _mutation_summary(),
+        "prophecy_exclusions": prophecy_exclusions,
+        "warnings": warnings,
+        "errors": errors,
+        "recommended_next_batches": recommendations,
+        "human_review_inbox": review_inbox,
+        "next_safe_steps": next_safe_steps,
+        "run_started_at": run_started_at,
+        "refusal_reason": refusal_reason,
+    }
+    paths = _write_outputs(output_dir, report, candidates, json_only=json_only, markdown_only=markdown_only)
+    report["output_files"] = {key: str(value) for key, value in paths.items()}
+    if not json_only and "markdown_report" in paths:
+        paths["markdown_report"].write_text(render_corpus_etl_markdown(report), encoding="utf-8")
+    if not markdown_only and "json_report" in paths:
+        paths["json_report"].write_text(json.dumps(_json_payload(report), indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def render_corpus_etl_markdown(report: dict[str, Any]) -> str:
+    counts = report.get("counts", {})
+    output_files = report.get("output_files", {})
+    mutations = report.get("mutations", {})
+    existing = report.get("existing_state", {})
+    lines = [
+        "# Corpus ETL Report",
+        "",
+        "## Run Summary",
+        "",
+        f"- Status: `{report.get('status', '')}`",
+        f"- Command: `{report.get('command_invocation', '')}`",
+        f"- Working directory: `{report.get('working_directory', '')}`",
+        f"- Git branch: `{report.get('git_branch', '')}`",
+        f"- Git status summary: `{report.get('git_status_summary', '')}`",
+        f"- Archive root: `{report.get('archive_root') or 'not used'}`",
+        f"- Drive folder ID: `{report.get('drive_folder_id') or 'not used'}`",
+        f"- Drive folder URL: `{report.get('drive_folder_url') or 'not used'}`",
+        f"- Corpus: `{report.get('corpus', '')}`",
+        f"- Mode: `{report.get('mode', '')}`",
+        f"- Background-safe: `{str(report.get('background_safe', False)).lower()}`",
+        "",
+        "## Safety Summary",
+        "",
+        "- This controller writes metadata reports/manifests only.",
+        "- It does not register sources, append imports, review proposals, export workbooks, promote, roll back, commit, or push.",
+    ]
+    for key, value in mutations.items():
+        lines.append(f"- {key}: `{str(value).lower()}`")
+    lines.extend(
+        [
+            "",
+            "## Candidate Source Counts",
+            "",
+            f"- Candidate files: `{counts.get('candidate_files', 0)}`",
+            f"- Supported text files: `{counts.get('supported_text_files', 0)}`",
+            f"- Metadata-only files: `{counts.get('metadata_only_files', 0)}`",
+            f"- Metadata-only large files: `{counts.get('large_files', 0)}`",
+            f"- Already registered: `{counts.get('already_registered', 0)}`",
+            f"- Unregistered candidates: `{counts.get('unregistered_candidates', 0)}`",
+            f"- Unsupported files: `{counts.get('unsupported_files', 0)}`",
+            f"- Prophecy-excluded files: `{counts.get('prophecy_excluded', 0)}`",
+            "",
+            "## Existing Generated Batches",
+            "",
+            *_batch_lines(existing.get("generated_batches", [])),
+            "",
+            "## Existing Validation State",
+            "",
+            f"- Validation ready: `{len(existing.get('validation_ready', []))}`",
+            f"- Validation failed: `{len(existing.get('validation_failed', []))}`",
+            "",
+            "## Existing Proposals Awaiting Review",
+            "",
+            *_proposal_lines(existing.get("proposals_awaiting_review", [])),
+            "",
+            "## Recommended Next Batches",
+            "",
+            *_recommendation_lines(report.get("recommended_next_batches", [])),
+        ]
+    )
+    if report.get("mode") == "review-pack":
+        lines.extend(["", "## Human Review Inbox Summary", "", *_inbox_lines(report.get("human_review_inbox", []))])
+    lines.extend(
+        [
+            "",
+            "## Prophecy Excluded",
+            "",
+            *_excluded_lines(report.get("prophecy_exclusions", [])),
+            "",
+            "## Output Paths",
+            "",
+        ]
+    )
+    lines.extend([f"- {key}: `{value}`" for key, value in output_files.items()] or ["- Output paths pending."])
+    lines.extend(["", "## Warnings", "", *_bullet_lines(report.get("warnings", []))])
+    lines.extend(["", "## Errors", "", *_bullet_lines(report.get("errors", []))])
+    lines.extend(["", "## Next Safe Commands", "", *_bullet_lines(report.get("next_safe_steps", []))])
+    lines.extend(
+        [
+            "",
+            "## Explicit Confirmation",
+            "",
+            "- no raw archive copied: `true`",
+            "- no queues mutated: `true`",
+            "- no imports mutated: `true`",
+            "- no proposals mutated: `true`",
+            "- no workbook mutated: `true`",
+            "- no commit: `true`",
+            "- no push: `true`",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_outputs(
+    output_dir: Path,
+    report: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    json_only: bool,
+    markdown_only: bool,
+) -> dict[str, Path]:
+    paths: dict[str, Path] = {}
+    if not json_only:
+        paths["markdown_report"] = output_dir / "corpus_etl_report.md"
+    if not markdown_only:
+        paths["json_report"] = output_dir / "corpus_etl_report.json"
+    if candidates and not json_only:
+        paths["candidate_sources_csv"] = output_dir / "candidate_sources.csv"
+        _write_candidate_csv(paths["candidate_sources_csv"], candidates)
+    if report.get("mode") == "review-pack" and not json_only:
+        paths["human_review_inbox"] = output_dir / "human_review_inbox.md"
+        paths["human_review_inbox"].write_text(render_human_review_inbox(report), encoding="utf-8")
+    report["output_files"] = {key: str(value) for key, value in paths.items()}
+    return paths
+
+
+def render_human_review_inbox(report: dict[str, Any]) -> str:
+    lines = [
+        "# Corpus ETL Human Review Inbox",
+        "",
+        f"- Corpus: `{report.get('corpus', '')}`",
+        f"- Mode: `{report.get('mode', '')}`",
+        f"- Candidate files: `{report.get('counts', {}).get('candidate_files', 0)}`",
+        f"- Unregistered candidates: `{report.get('counts', {}).get('unregistered_candidates', 0)}`",
+        f"- Likely duplicate candidates: `{len([c for c in report.get('candidate_sources', []) if c.get('duplicate_risk') == 'possible'])}`",
+        "",
+        "## Batches Ready For Human Review",
+        "",
+        *_inbox_lines([item for item in report.get("human_review_inbox", []) if item.get("bucket") == "batches_ready_for_human_review"]),
+        "",
+        "## Batches Needing Repair",
+        "",
+        *_inbox_lines([item for item in report.get("human_review_inbox", []) if item.get("bucket") == "batches_needing_repair"]),
+        "",
+        "## Batches Ready For Real Append Only After Confirmation",
+        "",
+        *_inbox_lines([item for item in report.get("human_review_inbox", []) if item.get("bucket") == "append_after_confirmation"]),
+        "",
+        "## Proposals Awaiting Review",
+        "",
+        *_proposal_lines(report.get("existing_state", {}).get("proposals_awaiting_review", [])),
+        "",
+        "## Sources Ready For Extraction",
+        "",
+        *_candidate_lines([item for item in report.get("candidate_sources", []) if item.get("registered_match_status") == "matched"]),
+        "",
+        "## Sources Needing Registration",
+        "",
+        *_candidate_lines([item for item in report.get("candidate_sources", []) if item.get("registered_match_status") == "unmatched"][:50]),
+        "",
+        "## Likely Duplicate Candidates",
+        "",
+        *_candidate_lines([item for item in report.get("candidate_sources", []) if item.get("duplicate_risk") == "possible"]),
+        "",
+        "## Next Recommended Action",
+        "",
+        *_recommendation_lines(report.get("recommended_next_batches", [])),
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_candidate_csv(path: Path, candidates: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CANDIDATE_FIELDS)
+        writer.writeheader()
+        for candidate in candidates:
+            writer.writerow({field: candidate.get(field, "") for field in CANDIDATE_FIELDS})
+
+
+def _match_registered(candidates: list[dict[str, Any]], sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for candidate in candidates:
+        match = _registered_match(candidate, sources)
+        candidate["registered_match_status"] = "matched" if match else "unmatched"
+        candidate["registered_source_id"] = match.get("source_id", "") if match else ""
+        candidate["registered_match_reason"] = match.get("_match_reason", "") if match else ""
+        candidate["duplicate_risk"] = "possible" if match else "low"
+        if match:
+            candidate["recommended_action"] = "already registered; inspect existing source state before extraction"
+            candidate["recommended_next_action"] = "use existing source ID and guarded packet/workspace commands"
+        else:
+            candidate["recommended_action"] = "needs human review before registration"
+            candidate["recommended_next_action"] = "register selected source through existing guarded workflow"
+    return candidates
+
+
+def _registered_match(candidate: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidate_path = str(candidate.get("absolute_path_or_archive_uri", "")).lower()
+    rel_path = str(candidate.get("relative_path", "")).lower()
+    title = str(candidate.get("detected_title", "")).lower()
+    sha256 = str(candidate.get("sha256", "")).lower()
+    for row in sources:
+        haystack = " ".join(str(row.get(key, "")) for key in row.keys()).lower()
+        if sha256 and sha256 in haystack:
+            matched = dict(row)
+            matched["_match_reason"] = "sha256"
+            return matched
+        if candidate_path and candidate_path in haystack:
+            matched = dict(row)
+            matched["_match_reason"] = "absolute path"
+            return matched
+        if rel_path and rel_path in haystack:
+            matched = dict(row)
+            matched["_match_reason"] = "relative path"
+            return matched
+        row_title = str(row.get("title", "")).lower()
+        if title and row_title and (title == row_title or title in row_title or row_title in title):
+            matched = dict(row)
+            matched["_match_reason"] = "title similarity"
+            return matched
+    return None
+
+
+def _existing_state(project_path: Path, registered_sources: list[dict[str, Any]]) -> dict[str, Any]:
+    batches = _detect_generated_batches(project_path)
+    validation_reports = _detect_validation_reports(project_path)
+    qa_reports = _detect_qa_reports(project_path)
+    validation_ready = [item for item in [*validation_reports, *qa_reports] if item.get("status") in {"pass", "passed", "ready"}]
+    validation_failed = [item for item in [*validation_reports, *qa_reports] if item.get("status") in {"failed", "blocked", "needs_cleanup"}]
+    proposals = _read_proposals_awaiting_review(project_path)
+    return {
+        "registered_sources": len(registered_sources),
+        "generated_batches": batches,
+        "validation_ready": validation_ready,
+        "validation_failed": validation_failed,
+        "proposals_awaiting_review": proposals,
+    }
+
+
+def _read_proposals_awaiting_review(project_path: Path) -> list[dict[str, Any]]:
+    path = project_path / "data/queues/proposed_updates.csv"
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("review_status", "proposed") in {"", "proposed", "needs_review"}:
+                rows.append(
+                    {
+                        "proposal_id": row.get("proposal_id", ""),
+                        "source_id": row.get("source_id", ""),
+                        "claim_id": row.get("claim_id", ""),
+                        "review_status": row.get("review_status", ""),
+                        "category": row.get("category", ""),
+                    }
+                )
+    return rows[:100]
+
+
+def _counts(
+    candidates: list[dict[str, Any]],
+    unsupported_files: list[dict[str, Any]],
+    prophecy_exclusions: list[dict[str, Any]],
+    errors: list[str],
+    warnings: list[str],
+) -> dict[str, int]:
+    already_registered = len([item for item in candidates if item.get("registered_match_status") == "matched"])
+    return {
+        "candidate_files": len(candidates),
+        "supported_text_files": len([item for item in candidates if item.get("is_supported_text")]),
+        "metadata_only_files": len([item for item in candidates if item.get("is_metadata_only")]),
+        "large_files": len([item for item in candidates if item.get("is_large_file")]),
+        "already_registered": already_registered,
+        "unregistered_candidates": len(candidates) - already_registered,
+        "unsupported_files": len(unsupported_files),
+        "prophecy_excluded": len(prophecy_exclusions),
+        "errors": len(errors),
+        "warnings": len(warnings),
+    }
+
+
+def _recommended_next_batches(
+    corpus: str,
+    candidates: list[dict[str, Any]],
+    existing_state: dict[str, Any],
+    mode: str,
+) -> list[dict[str, Any]]:
+    recommendations: list[dict[str, Any]] = []
+    repair_count = len(existing_state.get("validation_failed", []))
+    if repair_count:
+        recommendations.append(
+            {
+                "corpus": corpus,
+                "batch_id": "repair_existing_validation_failures",
+                "priority": 0,
+                "recommended_action": f"repair {repair_count} failed or blocked validation/QA item(s) before new append consideration",
+            }
+        )
+    unregistered = [item for item in candidates if item.get("registered_match_status") == "unmatched"]
+    if unregistered:
+        recommendations.append(
+            {
+                "corpus": corpus,
+                "batch_id": "registration_review",
+                "priority": 1,
+                "recommended_action": f"review {len(unregistered)} unregistered candidate(s); register selected sources through existing guarded workflows",
+            }
+        )
+    ready_batches = [batch for batch in existing_state.get("generated_batches", []) if batch.get("file_count") == 3]
+    if ready_batches:
+        recommendations.append(
+            {
+                "corpus": corpus,
+                "batch_id": "generated_batch_review",
+                "priority": 2,
+                "recommended_action": f"human-review {len(ready_batches)} generated batch(es), then run validate-import and append-import --dry-run only",
+            }
+        )
+    if not recommendations and mode in SAFE_MODES:
+        recommendations.append(
+            {
+                "corpus": corpus,
+                "batch_id": "no_action_detected",
+                "priority": 9,
+                "recommended_action": "no immediate batch action detected; review candidate manifest and existing state",
+            }
+        )
+    return sorted(recommendations, key=lambda row: int(row.get("priority", 99)))
+
+
+def _human_review_inbox(
+    candidates: list[dict[str, Any]],
+    existing_state: dict[str, Any],
+    recommendations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    inbox: list[dict[str, Any]] = []
+    for batch in existing_state.get("generated_batches", []):
+        file_count = int(batch.get("file_count", 0) or 0)
+        if file_count == 3:
+            bucket = "append_after_confirmation" if batch.get("validation_status") == "validation_logs_detected" else "batches_ready_for_human_review"
+            action = "human review before any real append"
+        else:
+            bucket = "batches_needing_repair"
+            action = "repair generated batch before validation"
+        inbox.append(
+            {
+                "bucket": bucket,
+                "label": batch.get("batch_id", ""),
+                "path": batch.get("path", ""),
+                "state": batch.get("state", ""),
+                "recommended_action": action,
+            }
+        )
+    for item in candidates[:50]:
+        if item.get("registered_match_status") == "unmatched":
+            inbox.append(
+                {
+                    "bucket": "sources_needing_registration",
+                    "label": item.get("detected_title", item.get("name", "")),
+                    "path": item.get("relative_path", ""),
+                    "state": "unregistered",
+                    "recommended_action": "human decides whether to register this source",
+                }
+            )
+    for recommendation in recommendations:
+        inbox.append(
+            {
+                "bucket": "next_recommended_action",
+                "label": recommendation.get("batch_id", ""),
+                "path": "",
+                "state": "recommendation",
+                "recommended_action": recommendation.get("recommended_action", ""),
+            }
+        )
+    return inbox
+
+
+def _json_payload(report: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(report)
+    payload.pop("candidate_sources", None)
+    payload["output_files"] = report.get("output_files", {})
+    return payload
+
+
+def _run_output_dir(output_root: Path, *, corpus: str, mode: str, run_id: str | None, overwrite: bool) -> Path:
+    resolved_run_id = run_id or f"{corpus}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    output_dir = output_root / resolved_run_id
+    if output_dir.exists() and any(output_dir.iterdir()) and not overwrite:
+        output_dir = output_root / f"{resolved_run_id}_{datetime.now().strftime('%f')}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+def _command_invocation(**kwargs: Any) -> str:
+    parts = ["python -m belief_dashboard_agentflows.cli corpus-etl"]
+    if kwargs.get("archive_root"):
+        parts.extend(["--archive-root", str(kwargs["archive_root"])])
+    if kwargs.get("drive_folder_id"):
+        parts.extend(["--drive-folder-id", str(kwargs["drive_folder_id"])])
+    if kwargs.get("drive_folder_url"):
+        parts.extend(["--drive-folder-url", str(kwargs["drive_folder_url"])])
+    parts.extend(["--corpus", str(kwargs["corpus"]), "--mode", str(kwargs["mode"])])
+    if kwargs.get("background_safe"):
+        parts.append("--background-safe")
+    for key, flag in [
+        ("max_sources", "--max-sources"),
+        ("max_depth", "--max-depth"),
+        ("max_files", "--max-files"),
+        ("large_file_threshold_mb", "--large-file-threshold-mb"),
+        ("hash_threshold_mb", "--hash-threshold-mb"),
+    ]:
+        if kwargs.get(key) is not None:
+            parts.extend([flag, str(kwargs[key])])
+    if kwargs.get("run_id"):
+        parts.extend(["--run-id", str(kwargs["run_id"])])
+    if kwargs.get("overwrite"):
+        parts.append("--overwrite")
+    return " ".join(parts)
+
+
+def _mutation_summary() -> dict[str, bool]:
+    return {
+        "raw_archive_copied": False,
+        "queues_mutated": False,
+        "imports_mutated": False,
+        "proposals_mutated": False,
+        "workbook_mutated": False,
+        "committed": False,
+        "pushed": False,
+    }
+
+
+def _next_safe_steps(status: str, mode: str, used_archive_root: bool, *, refusal_reason: str) -> list[str]:
+    if refusal_reason:
+        return ["Use inventory, plan, prepare, or review-pack for the safe MVP.", "Keep real append/export/proposal decisions in the native human-controlled CLI."]
+    if status == "unavailable":
+        if used_archive_root:
+            return ["Provide an archive root that exists in this runtime environment.", "Do not copy the full archive into Git."]
+        return ["Configure a future Drive metadata provider or run against a synced local archive root.", "Do not download raw Drive files in the MVP."]
+    steps = [
+        "Review corpus_etl_report.md and candidate_sources.csv.",
+        "Register selected sources manually or through existing guarded registration workflows.",
+        "Use packet/workspace, extraction QA, validate-import, and append-import --dry-run before any human-approved real append.",
+    ]
+    if mode == "review-pack":
+        steps.insert(0, "Review human_review_inbox.md first.")
+    return steps
+
+
+def _git(project_path: Path, args: list[str]) -> str:
+    try:
+        completed = subprocess.run(["git", *args], cwd=project_path, check=False, capture_output=True, text=True)
+    except OSError:
+        return ""
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def _git_status_summary(project_path: Path) -> str:
+    output = _git(project_path, ["status", "--short"])
+    if not output:
+        return "clean"
+    return f"{len(output.splitlines())} changed/untracked path(s)"
+
+
+def _batch_lines(items: list[dict[str, Any]]) -> list[str]:
+    if not items:
+        return ["- None detected"]
+    return [f"- `{item.get('batch_id', '')}` state=`{item.get('state', '')}` path=`{item.get('path', '')}`" for item in items[:50]]
+
+
+def _proposal_lines(items: list[dict[str, Any]]) -> list[str]:
+    if not items:
+        return ["- None detected"]
+    return [f"- `{item.get('proposal_id', '')}` source=`{item.get('source_id', '')}` status=`{item.get('review_status', '')}`" for item in items[:50]]
+
+
+def _recommendation_lines(items: list[dict[str, Any]]) -> list[str]:
+    if not items:
+        return ["- None"]
+    return [f"- Priority {item.get('priority', '')}: `{item.get('batch_id', '')}` - {item.get('recommended_action', '')}" for item in items]
+
+
+def _inbox_lines(items: list[dict[str, Any]]) -> list[str]:
+    if not items:
+        return ["- None"]
+    return [f"- `{item.get('label', '')}` [{item.get('bucket', '')}] {item.get('recommended_action', '')} {item.get('path', '')}".rstrip() for item in items[:100]]
+
+
+def _excluded_lines(items: list[dict[str, Any]]) -> list[str]:
+    if not items:
+        return ["- None detected"]
+    return [f"- `{item.get('relative_path', '')}` reason=`{item.get('reason', '')}`" for item in items[:100]]
+
+
+def _candidate_lines(items: list[dict[str, Any]]) -> list[str]:
+    if not items:
+        return ["- None detected"]
+    return [f"- `{item.get('relative_path', '')}` title=`{item.get('detected_title', '')}` action=`{item.get('recommended_action', '')}`" for item in items[:100]]
+
+
+def _bullet_lines(items: list[str]) -> list[str]:
+    if not items:
+        return ["- None"]
+    return [f"- {item}" for item in items]

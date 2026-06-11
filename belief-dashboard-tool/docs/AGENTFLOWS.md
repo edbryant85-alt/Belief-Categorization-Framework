@@ -31,6 +31,7 @@ python -m belief_dashboard_agentflows.cli export-preflight
 python -m belief_dashboard_agentflows cluster-extraction-batch --cluster-id CLUST-SIM-001 --limit 25 --mode report
 python -m belief_dashboard_agentflows.cli corpus-backlog-runner --corpus mosaic --mode inventory --background-safe
 python -m belief_dashboard_agentflows.cli drive-corpus-inventory --drive-folder-id FOLDER_ID --corpus youtube --background-safe
+python -m belief_dashboard_agentflows.cli corpus-etl --archive-root "/path/to/synced/archive" --corpus youtube --mode review-pack --background-safe
 ```
 
 Save reports under `reports/agentflows/`:
@@ -116,6 +117,111 @@ The current `--auto-commit` option is intentionally conservative. It refuses to 
 - provider and credential availability;
 - markdown, JSON, files JSON, and source-manifest summaries;
 - explicit confirmation that no raw archive files were downloaded and no queues, imports, proposals, or workbooks were mutated.
+
+`corpus-etl` reports:
+
+- local/synced archive metadata inventory;
+- candidate source detection and conservative source-type, cluster, and role suggestions;
+- registered-source match status from existing source dossiers;
+- existing generated batch, validation, QA, and proposal-review state;
+- a human review inbox for `review-pack`;
+- explicit prophecy exclusions;
+- explicit confirmation that no raw archive was copied and no queues, imports, proposals, workbook, commit, or push were mutated.
+
+## Corpus ETL Controller
+
+`corpus-etl` is the guarded source-to-spreadsheet controller. Its purpose is to connect the existing safe pieces into one operator view:
+
+```text
+raw archive
+-> inventory
+-> candidate detection
+-> registration planning
+-> cluster/batch planning
+-> preparation status
+-> validation/dry-run state
+-> human review inbox
+```
+
+It does not bypass human review. It does not register sources, append imports, approve/reject/defer proposals, apply approved updates, export or verify workbooks, promote, roll back, commit, or push. Real ledger changes remain manual/native CLI decisions.
+
+Local/synced archive root mode is the MVP path:
+
+```bash
+python -m belief_dashboard_agentflows.cli corpus-etl \
+  --archive-root "G:\My Drive\Belief\YT Transcripts" \
+  --corpus youtube \
+  --mode review-pack \
+  --background-safe \
+  --max-sources 10
+```
+
+The archive root must exist in the runtime environment. A Windows Drive mount such as `G:\My Drive\Belief\YT Transcripts` exists only on the synced Windows machine unless it has been mounted or staged elsewhere. If the path is unavailable, the command writes a safe unavailable report instead of copying raw files into the repo.
+
+Future Drive provider mode is parser-compatible:
+
+```bash
+python -m belief_dashboard_agentflows.cli corpus-etl \
+  --drive-folder-id FOLDER_ID \
+  --corpus youtube \
+  --mode inventory \
+  --background-safe
+```
+
+For the MVP, Drive mode reports provider availability and refuses to download raw Drive files. Use `drive-corpus-inventory` for current Drive metadata inventories.
+
+Supported MVP modes:
+
+- `inventory`: scan an archive root, write `candidate_sources.csv`, markdown, and JSON reports.
+- `plan`: inventory plus planning columns for cluster, source role, duplicate risk, priority, and next action.
+- `prepare`: plan plus existing registered/staged/generated state inspection; it recommends safe preparation work but does not mutate queues.
+- `review-pack`: prepare plus `human_review_inbox.md` for human review.
+
+Future modes are accepted by the parser but refused in the safe MVP:
+
+- `draft`
+- `append-approved`
+- `export-approved`
+- `drive-stage`
+- `drive-download`
+
+If `--background-safe` is set, these future modes always refuse.
+
+Outputs are written under:
+
+```text
+reports/agentflow_runs/corpus_etl/<corpus>_<mode>_YYYYMMDD_HHMMSS/
+```
+
+or, with `--run-id`:
+
+```text
+reports/agentflow_runs/corpus_etl/<run-id>/
+```
+
+Each normal archive-root run writes:
+
+- `corpus_etl_report.md`
+- `corpus_etl_report.json`
+- `candidate_sources.csv`
+
+`review-pack` also writes:
+
+- `human_review_inbox.md`
+
+Prophecy exclusion is aggressive. Any file, folder, path, corpus, title, or inferred topic containing `prophecy`, `prophecies`, or `prophetic` is listed in the excluded section and not processed further.
+
+The review pack helps the operator see batches ready for human review, batches needing repair, batches that may be ready for real append only after confirmation, proposals awaiting review, registered candidates ready for extraction, unregistered candidates needing registration decisions, and likely duplicates.
+
+What remains manual:
+
+- interpreting source importance;
+- registering selected sources;
+- choosing packet batches;
+- drafting and reviewing extracted claims;
+- running real append after validation and dry-run;
+- proposal decisions;
+- workbook export, verification, promotion, and rollback.
 
 ## Drive Corpus Inventory
 

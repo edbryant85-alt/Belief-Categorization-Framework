@@ -30,6 +30,7 @@ COMMAND_POLICY: dict[str, CommandSpec] = {
     "cluster-extraction-batch": CommandSpec("cluster-extraction-batch", CommandRisk.READ_ONLY, False),
     "drive-auth-check": CommandSpec("drive-auth-check", CommandRisk.READ_ONLY, False),
     "corpus-backlog-runner": CommandSpec("corpus-backlog-runner", CommandRisk.INTERMEDIATE_WRITE, False),
+    "corpus-etl": CommandSpec("corpus-etl", CommandRisk.INTERMEDIATE_WRITE, False),
     "drive-corpus-inventory": CommandSpec("drive-corpus-inventory", CommandRisk.INTERMEDIATE_WRITE, False),
     "packet-batch-draft": CommandSpec("packet-batch-draft", CommandRisk.INTERMEDIATE_WRITE, False),
     "generate-extraction-workspace": CommandSpec(

@@ -42,6 +42,13 @@ def test_corpus_backlog_runner_is_intermediate_write() -> None:
     assert not spec.requires_human_confirmation
 
 
+def test_corpus_etl_is_intermediate_write() -> None:
+    spec = resolve_command_policy(["corpus-etl", "--corpus", "youtube", "--mode", "inventory"])
+
+    assert spec.risk == CommandRisk.INTERMEDIATE_WRITE
+    assert not spec.requires_human_confirmation
+
+
 def test_drive_corpus_inventory_is_intermediate_write() -> None:
     spec = resolve_command_policy(["drive-corpus-inventory", "--drive-folder-id", "folder-id", "--corpus", "youtube"])
 

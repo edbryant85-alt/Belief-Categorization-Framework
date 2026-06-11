@@ -14,6 +14,7 @@ from belief_dashboard_agentflows.flows.corpus_backlog import (
     render_corpus_backlog_markdown,
     run_corpus_backlog,
 )
+from belief_dashboard_agentflows.flows.corpus_etl import render_corpus_etl_markdown, run_corpus_etl
 from belief_dashboard_agentflows.flows.drive_corpus_inventory import (
     render_drive_auth_check_markdown,
     render_drive_corpus_inventory_markdown,
@@ -100,6 +101,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     drive_parser.add_argument("--json-only", action="store_true")
     drive_parser.add_argument("--markdown-only", action="store_true")
 
+    etl_parser = subparsers.add_parser("corpus-etl", help="Run guarded source-to-spreadsheet ETL inventory and review packaging.")
+    _add_common_args(etl_parser)
+    etl_input = etl_parser.add_mutually_exclusive_group(required=True)
+    etl_input.add_argument("--archive-root")
+    etl_input.add_argument("--drive-folder-id")
+    etl_input.add_argument("--drive-folder-url")
+    etl_parser.add_argument("--corpus", required=True)
+    etl_parser.add_argument(
+        "--mode",
+        choices=["inventory", "plan", "prepare", "review-pack", "draft", "append-approved", "export-approved", "drive-stage", "drive-download"],
+        required=True,
+    )
+    etl_parser.add_argument("--background-safe", action="store_true")
+    etl_parser.add_argument("--max-sources", type=int)
+    etl_parser.add_argument("--max-depth", type=int, default=10)
+    etl_parser.add_argument("--max-files", type=int, default=5000)
+    etl_parser.add_argument("--large-file-threshold-mb", type=int, default=25)
+    etl_parser.add_argument("--hash-threshold-mb", type=int, default=10)
+    etl_parser.add_argument("--output-root", default="reports/agentflow_runs/corpus_etl")
+    etl_parser.add_argument("--overwrite", action="store_true")
+    etl_parser.add_argument("--run-id")
+    etl_parser.add_argument("--json-only", action="store_true")
+    etl_parser.add_argument("--markdown-only", action="store_true")
+
     auth_parser = subparsers.add_parser("drive-auth-check", help="Check Google Drive API dependency and credential availability without reading secrets.")
     _add_common_args(auth_parser)
 
@@ -185,6 +210,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 markdown_only=args.markdown_only,
                 project_dir=args.project_dir,
             )
+        elif args.command == "corpus-etl":
+            report = run_corpus_etl(
+                archive_root=args.archive_root,
+                drive_folder_id=args.drive_folder_id,
+                drive_folder_url=args.drive_folder_url,
+                corpus=args.corpus,
+                mode=args.mode,
+                background_safe=args.background_safe,
+                max_sources=args.max_sources,
+                max_depth=args.max_depth,
+                max_files=args.max_files,
+                large_file_threshold_mb=args.large_file_threshold_mb,
+                hash_threshold_mb=args.hash_threshold_mb,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+                run_id=args.run_id,
+                json_only=args.json_only,
+                markdown_only=args.markdown_only,
+                project_dir=args.project_dir,
+            )
         else:
             report = run_drive_auth_check()
 
@@ -239,6 +284,8 @@ def _render_report(report: dict[str, Any], output_format: str) -> str:
         return render_packet_batch_draft_markdown(report)
     if report.get("flow") == "drive-corpus-inventory":
         return render_drive_corpus_inventory_markdown(report)
+    if report.get("flow") == "corpus-etl":
+        return render_corpus_etl_markdown(report)
     if report.get("flow") == "drive-auth-check":
         return render_drive_auth_check_markdown(report)
     return render_markdown(report)

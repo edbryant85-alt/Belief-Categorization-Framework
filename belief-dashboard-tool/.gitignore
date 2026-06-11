@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+tmp/
 dist/
 build/
 *.egg-info/
@@ -58,6 +59,7 @@ data/external/mosaic/mosaic_transcripts_machine/
 data/external/mosaic/mosaic_transcripts_original/
 data/external/drive_cache/
 data/external/drive_staging/
+reports/agentflow_runs/corpus_etl/*/tmp/
 
 data/outputs/*.xlsx
 !data/outputs/.gitkeep
