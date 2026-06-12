@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import fnmatch
 import json
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,8 @@ from belief_dashboard_agentflows.flows.drive_corpus_inventory import (
 SAFE_MODES = {"inventory", "plan", "prepare", "review-pack"}
 FUTURE_MODES = {"draft", "append-approved", "export-approved", "drive-stage", "drive-download"}
 DEFAULT_OUTPUT_ROOT = Path("reports/agentflow_runs/corpus_etl")
+MOSAIC_PLANNING_READ_LIMIT_BYTES = 2 * 1024 * 1024
+MOSAIC_DEFAULT_BATCH_SIZE = 25
 CANDIDATE_FIELDS = [
     "candidate_id",
     "corpus",
@@ -164,8 +167,9 @@ def run_corpus_etl(
             )
 
     counts = _counts(candidates, unsupported_files, prophecy_exclusions, errors, warnings)
-    recommendations = _recommended_next_batches(corpus, candidates, existing_state, mode)
-    review_inbox = _human_review_inbox(candidates, unsupported_files, existing_state, recommendations) if mode == "review-pack" and not refusal_reason else []
+    mosaic_planning = _mosaic_planning(corpus, mode, candidates, warnings) if not refusal_reason else _empty_mosaic_planning()
+    recommendations = _recommended_next_batches(corpus, candidates, existing_state, mode, mosaic_planning)
+    review_inbox = _human_review_inbox(candidates, unsupported_files, existing_state, recommendations, mosaic_planning) if mode == "review-pack" and not refusal_reason else []
     next_safe_steps = _next_safe_steps(status, mode, bool(archive_root), refusal_reason=refusal_reason)
     report: dict[str, Any] = {
         "title": "Corpus ETL Report",
@@ -209,6 +213,10 @@ def run_corpus_etl(
         "warnings": warnings,
         "errors": errors,
         "recommended_next_batches": recommendations,
+        "mosaic_planning": mosaic_planning,
+        "recommended_registration_batches": mosaic_planning.get("recommended_registration_batches", []),
+        "manifest_files_used": mosaic_planning.get("manifest_files_used", []),
+        "batch_support_files_used": mosaic_planning.get("batch_support_files_used", []),
         "human_review_inbox": review_inbox,
         "next_safe_steps": next_safe_steps,
         "run_started_at": run_started_at,
@@ -290,6 +298,10 @@ def render_corpus_etl_markdown(report: dict[str, Any]) -> str:
             "## Recommended Next Batches",
             "",
             *_recommendation_lines(report.get("recommended_next_batches", [])),
+            "",
+            "## Mosaic Planning",
+            "",
+            *_mosaic_planning_lines(report.get("mosaic_planning", {})),
         ]
     )
     if report.get("mode") == "review-pack":
@@ -358,6 +370,10 @@ def render_human_review_inbox(report: dict[str, Any]) -> str:
         f"- Candidate files: `{report.get('counts', {}).get('candidate_files', 0)}`",
         f"- Unregistered candidates: `{report.get('counts', {}).get('unregistered_candidates', 0)}`",
         f"- Likely duplicate candidates: `{len([c for c in report.get('candidate_sources', []) if c.get('duplicate_risk') == 'possible'])}`",
+        "",
+        "## Recommended Mosaic Registration Batch",
+        "",
+        *_mosaic_registration_batch_lines(report.get("recommended_registration_batches", [])),
         "",
         "## Sources Needing Registration",
         "",
@@ -633,6 +649,7 @@ def _recommended_next_batches(
     candidates: list[dict[str, Any]],
     existing_state: dict[str, Any],
     mode: str,
+    mosaic_planning: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
     repair_count = len(existing_state.get("validation_failed", []))
@@ -645,13 +662,27 @@ def _recommended_next_batches(
                 "recommended_action": f"repair {repair_count} failed or blocked validation/QA item(s) before new append consideration",
             }
         )
+    mosaic_batches = (mosaic_planning or {}).get("recommended_registration_batches", [])
+    if mosaic_batches:
+        first_batch = mosaic_batches[0]
+        recommendations.append(
+            {
+                "corpus": corpus,
+                "batch_id": first_batch.get("batch_id", "mosaic_registration_batch"),
+                "priority": 1,
+                "recommended_action": (
+                    f"review and register {len(first_batch.get('source_packets', []))} Mosaic source packet(s) "
+                    "through existing guarded registration workflow; do not register artifacts"
+                ),
+            }
+        )
     unregistered = [item for item in candidates if item.get("review_bucket") == "sources_needing_registration"]
     if unregistered:
         recommendations.append(
             {
                 "corpus": corpus,
                 "batch_id": "registration_review",
-                "priority": 1,
+                "priority": 2 if mosaic_batches else 1,
                 "recommended_action": f"review {len(unregistered)} unregistered candidate(s); register selected sources through existing guarded workflows",
             }
         )
@@ -682,6 +713,7 @@ def _human_review_inbox(
     unsupported_files: list[dict[str, Any]],
     existing_state: dict[str, Any],
     recommendations: list[dict[str, Any]],
+    mosaic_planning: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     inbox: list[dict[str, Any]] = []
     for batch in existing_state.get("generated_batches", []):
@@ -699,6 +731,20 @@ def _human_review_inbox(
                 "path": batch.get("path", ""),
                 "state": batch.get("state", ""),
                 "recommended_action": action,
+            }
+        )
+    for batch in (mosaic_planning or {}).get("recommended_registration_batches", []):
+        evidence = [*batch.get("manifest_files_used", []), *batch.get("batch_support_files_used", [])]
+        inbox.append(
+            {
+                "bucket": "recommended_mosaic_registration_batch",
+                "label": batch.get("batch_id", "mosaic_registration_batch"),
+                "path": ", ".join(packet.get("relative_path", "") for packet in batch.get("source_packets", [])[:10]),
+                "state": batch.get("selection_reason", ""),
+                "recommended_action": (
+                    f"register {len(batch.get('source_packets', []))} Mosaic source packet(s) through guarded registration workflow; "
+                    f"evidence={', '.join(evidence) if evidence else 'candidate packet order'}"
+                ),
             }
         )
     for item in candidates[:100]:
@@ -739,6 +785,173 @@ def _human_review_inbox(
     return inbox
 
 
+def _mosaic_planning(corpus: str, mode: str, candidates: list[dict[str, Any]], warnings: list[str]) -> dict[str, Any]:
+    planning = _empty_mosaic_planning()
+    if corpus.lower() != "mosaic" or mode not in {"plan", "review-pack"}:
+        return planning
+    planning["enabled"] = True
+
+    packet_candidates = _mosaic_packet_candidates(candidates)
+    artifacts = [item for item in candidates if item.get("review_bucket") == "artifacts_available_for_validation"]
+    manifest_candidates = [
+        item
+        for item in candidates
+        if item.get("review_bucket") == "manifests_available_for_planning" and _is_mosaic_planning_manifest(str(item.get("relative_path", "")))
+    ]
+    support_candidates = [
+        item
+        for item in candidates
+        if item.get("review_bucket") == "support_files_detected" and _is_mosaic_batch_support(str(item.get("relative_path", "")))
+    ]
+    planning["manifest_files_detected"] = [_planning_file_record(item) for item in manifest_candidates]
+    planning["batch_support_files_detected"] = [_planning_file_record(item) for item in support_candidates]
+    planning["artifacts_available_for_validation"] = [_planning_file_record(item) for item in artifacts]
+
+    manifest_rows_by_packet: dict[str, dict[str, str]] = {}
+    explicit_batch_packet_ids: list[str] = []
+
+    for item in manifest_candidates:
+        rows = _read_planning_rows(item, warnings)
+        if rows or str(item.get("file_extension", "")).lower() == ".txt":
+            planning["manifest_files_used"].append(str(item.get("relative_path", "")))
+        for row in rows:
+            packet_id = _row_packet_id(row)
+            if packet_id:
+                manifest_rows_by_packet[packet_id] = row
+
+    for item in support_candidates:
+        rows = _read_planning_rows(item, warnings)
+        if rows or str(item.get("file_extension", "")).lower() == ".txt":
+            planning["batch_support_files_used"].append(str(item.get("relative_path", "")))
+        for row in rows:
+            packet_id = _row_packet_id(row)
+            if packet_id and packet_id not in explicit_batch_packet_ids:
+                explicit_batch_packet_ids.append(packet_id)
+
+    selected_ids = [packet_id for packet_id in explicit_batch_packet_ids if packet_id in packet_candidates]
+    selection_reason = "batch support file mapping"
+    batch_id = "mosaic_batch1_registration"
+    if not selected_ids:
+        selected_ids = sorted(packet_candidates.keys(), key=_mosaic_packet_sort_key)[:MOSAIC_DEFAULT_BATCH_SIZE]
+        selection_reason = "next chronological packet batch"
+        batch_id = "mosaic_next_chronological_registration"
+
+    source_packets = [_packet_plan_record(packet_candidates[packet_id], manifest_rows_by_packet.get(packet_id, {})) for packet_id in selected_ids]
+    if source_packets:
+        planning["recommended_registration_batches"].append(
+            {
+                "batch_id": batch_id,
+                "corpus": "mosaic",
+                "selection_reason": selection_reason,
+                "source_packets": source_packets,
+                "manifest_files_used": list(dict.fromkeys(planning["manifest_files_used"])),
+                "batch_support_files_used": list(dict.fromkeys(planning["batch_support_files_used"])),
+                "artifacts_available_for_validation": planning["artifacts_available_for_validation"],
+                "recommended_action": "register listed Mosaic source packets through existing guarded registration workflow; do not register processing artifacts",
+                "next_safe_commands": [
+                    "Review human_review_inbox.md and candidate_sources.csv.",
+                    "Register only the listed Mosaic source packets through the existing guarded registration workflow.",
+                    "Validate processing artifacts only through the existing guarded manual-import workflow.",
+                ],
+            }
+        )
+    return planning
+
+
+def _empty_mosaic_planning() -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "manifest_files_detected": [],
+        "batch_support_files_detected": [],
+        "manifest_files_used": [],
+        "batch_support_files_used": [],
+        "artifacts_available_for_validation": [],
+        "recommended_registration_batches": [],
+    }
+
+
+def _mosaic_packet_candidates(candidates: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    packets: dict[str, dict[str, Any]] = {}
+    for item in candidates:
+        if item.get("review_bucket") != "sources_needing_registration":
+            continue
+        packet_id = _packet_id_from_text(f"{item.get('relative_path', '')} {item.get('name', '')}")
+        if packet_id:
+            packets[packet_id] = item
+    return packets
+
+
+def _is_mosaic_planning_manifest(relative_path: str) -> bool:
+    name = Path(relative_path).name.lower()
+    return name in {"mosaic_source_packet_manifest.csv", "mosaic_streams_index.csv"} or fnmatch.fnmatch(name, "*stream_urls*.txt")
+
+
+def _is_mosaic_batch_support(relative_path: str) -> bool:
+    rel = relative_path.replace("\\", "/").lower()
+    name = Path(rel).name
+    return name == "mosaic_batch1_source_triage_rows.csv" or rel.startswith("input_batches/") or "/input_batches/" in rel
+
+
+def _planning_file_record(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "relative_path": candidate.get("relative_path", ""),
+        "file_role": candidate.get("file_role", ""),
+        "review_bucket": candidate.get("review_bucket", ""),
+        "recommended_action": candidate.get("recommended_action", ""),
+    }
+
+
+def _read_planning_rows(candidate: dict[str, Any], warnings: list[str]) -> list[dict[str, str]]:
+    extension = str(candidate.get("file_extension", "")).lower()
+    path_text = str(candidate.get("absolute_path_or_archive_uri", ""))
+    path = Path(path_text)
+    if extension != ".csv":
+        return []
+    if not path.exists() or not path.is_file():
+        warnings.append(f"Mosaic planning file unavailable for metadata parse: {candidate.get('relative_path', '')}")
+        return []
+    try:
+        if path.stat().st_size > MOSAIC_PLANNING_READ_LIMIT_BYTES:
+            warnings.append(f"Mosaic planning file skipped because it exceeds safe metadata parse limit: {candidate.get('relative_path', '')}")
+            return []
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            return [{str(key or "").strip(): str(value or "").strip() for key, value in row.items()} for row in csv.DictReader(handle)]
+    except (OSError, UnicodeError, csv.Error) as exc:
+        warnings.append(f"Mosaic planning file could not be parsed: {candidate.get('relative_path', '')}: {exc}")
+        return []
+
+
+def _row_packet_id(row: dict[str, str]) -> str:
+    for key, value in row.items():
+        key_lower = key.lower()
+        if key_lower in {"source_id", "packet_id", "source_packet_id", "id"} or "path" in key_lower or "source" in key_lower:
+            packet_id = _packet_id_from_text(value)
+            if packet_id:
+                return packet_id
+    return _packet_id_from_text(" ".join(row.values()))
+
+
+def _packet_id_from_text(value: str) -> str:
+    match = re.search(r"SRC-MOSAIC-\d{4}", value, flags=re.IGNORECASE)
+    return match.group(0).upper() if match else ""
+
+
+def _mosaic_packet_sort_key(packet_id: str) -> tuple[int, str]:
+    match = re.search(r"(\d+)$", packet_id)
+    return (int(match.group(1)) if match else 999999, packet_id)
+
+
+def _packet_plan_record(candidate: dict[str, Any], manifest_row: dict[str, str]) -> dict[str, Any]:
+    packet_id = _packet_id_from_text(f"{candidate.get('relative_path', '')} {candidate.get('name', '')}")
+    return {
+        "source_id": packet_id,
+        "relative_path": candidate.get("relative_path", ""),
+        "detected_title": candidate.get("detected_title", ""),
+        "manifest_title": manifest_row.get("title", "") or manifest_row.get("sermon_title", ""),
+        "manifest_url": manifest_row.get("url", "") or manifest_row.get("youtube_url", "") or manifest_row.get("stream_url", ""),
+    }
+
+
 def _json_payload(report: dict[str, Any]) -> dict[str, Any]:
     payload = dict(report)
     payload.pop("candidate_sources", None)
@@ -762,6 +975,44 @@ def _count_lines(counts: dict[str, int]) -> list[str]:
 
 def _inbox_bucket(report: dict[str, Any], bucket: str) -> list[dict[str, Any]]:
     return [item for item in report.get("human_review_inbox", []) if item.get("bucket") == bucket]
+
+
+def _mosaic_registration_batch_lines(batches: list[dict[str, Any]]) -> list[str]:
+    if not batches:
+        return ["- None"]
+    lines: list[str] = []
+    for batch in batches:
+        lines.append(
+            f"- `{batch.get('batch_id', '')}` reason=`{batch.get('selection_reason', '')}` "
+            f"packet_count=`{len(batch.get('source_packets', []))}` action=`{batch.get('recommended_action', '')}`"
+        )
+        evidence = [*batch.get("manifest_files_used", []), *batch.get("batch_support_files_used", [])]
+        lines.append(f"  - Evidence: {', '.join(f'`{item}`' for item in evidence) if evidence else 'candidate packet order'}")
+        for packet in batch.get("source_packets", [])[:50]:
+            lines.append(f"  - `{packet.get('source_id', '')}` path=`{packet.get('relative_path', '')}`")
+        if batch.get("artifacts_available_for_validation"):
+            artifact_paths = [f"`{item.get('relative_path', '')}`" for item in batch.get("artifacts_available_for_validation", [])[:25]]
+            lines.append(f"  - Artifacts available for validation: {', '.join(artifact_paths)}")
+        for command in batch.get("next_safe_commands", []):
+            lines.append(f"  - Next safe step: {command}")
+    return lines
+
+
+def _mosaic_planning_lines(planning: dict[str, Any]) -> list[str]:
+    if not planning or not planning.get("enabled"):
+        return ["- Not applicable"]
+    lines = [
+        f"- Manifest files detected: `{len(planning.get('manifest_files_detected', []))}`",
+        f"- Batch support files detected: `{len(planning.get('batch_support_files_detected', []))}`",
+        f"- Manifest files used: `{len(planning.get('manifest_files_used', []))}`",
+        f"- Batch support files used: `{len(planning.get('batch_support_files_used', []))}`",
+        f"- Artifacts available for validation: `{len(planning.get('artifacts_available_for_validation', []))}`",
+        "",
+        "### Recommended Registration Batches",
+        "",
+        *_mosaic_registration_batch_lines(planning.get("recommended_registration_batches", [])),
+    ]
+    return lines
 
 
 def _run_output_dir(output_root: Path, *, corpus: str, mode: str, run_id: str | None, overwrite: bool) -> Path:

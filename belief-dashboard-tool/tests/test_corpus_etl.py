@@ -177,6 +177,76 @@ def test_json_report_includes_review_bucket_counts(tmp_path: Path) -> None:
     assert payload["counts"]["file_role_counts"]["processing_artifact"] == 1
 
 
+def test_mosaic_plan_recommends_registration_batch_from_support_files(tmp_path: Path) -> None:
+    archive = _mosaic_planning_archive(tmp_path)
+
+    report = run_corpus_etl(archive_root=archive, corpus="mosaic", mode="plan", project_dir=tmp_path, run_id="mosaic_plan")
+
+    planning = report["mosaic_planning"]
+    batch = planning["recommended_registration_batches"][0]
+    packet_ids = [packet["source_id"] for packet in batch["source_packets"]]
+    packet_paths = [packet["relative_path"] for packet in batch["source_packets"]]
+
+    assert planning["enabled"] is True
+    assert batch["batch_id"] == "mosaic_batch1_registration"
+    assert batch["selection_reason"] == "batch support file mapping"
+    assert packet_ids == ["SRC-MOSAIC-0001", "SRC-MOSAIC-0002", "SRC-MOSAIC-0003"]
+    assert all(path.startswith("mosaic_source_packets/") for path in packet_paths)
+    assert not any("extracted_claims" in path or "criteria_matrix" in path or "proposed_updates" in path for path in packet_paths)
+    assert "mosaic_source_packet_manifest.csv" in report["manifest_files_used"]
+    assert "mosaic_batch1_source_triage_rows.csv" in report["batch_support_files_used"]
+    assert any(item["relative_path"].endswith("_extracted_claims.csv") for item in planning["artifacts_available_for_validation"])
+
+    payload = json.loads(Path(report["output_files"]["json_report"]).read_text(encoding="utf-8"))
+    assert payload["mosaic_planning"]["recommended_registration_batches"][0]["source_packets"][0]["source_id"] == "SRC-MOSAIC-0001"
+    assert payload["recommended_registration_batches"][0]["batch_id"] == "mosaic_batch1_registration"
+    assert payload["manifest_files_used"] == ["mosaic_source_packet_manifest.csv", "mosaic_streams_index.csv"]
+    assert payload["batch_support_files_used"] == ["mosaic_batch1_source_triage_rows.csv"]
+
+
+def test_mosaic_review_pack_inbox_cites_planning_evidence(tmp_path: Path) -> None:
+    archive = _mosaic_planning_archive(tmp_path)
+
+    report = run_corpus_etl(archive_root=archive, corpus="mosaic", mode="review-pack", project_dir=tmp_path, run_id="mosaic_review_plan")
+    inbox = Path(report["output_files"]["human_review_inbox"]).read_text(encoding="utf-8")
+
+    assert "## Recommended Mosaic Registration Batch" in inbox
+    assert "mosaic_batch1_registration" in inbox
+    assert "SRC-MOSAIC-0001" in inbox
+    assert "SRC-MOSAIC-0003" in inbox
+    assert "mosaic_source_packet_manifest.csv" in inbox
+    assert "mosaic_batch1_source_triage_rows.csv" in inbox
+    assert "Artifacts available for validation" in inbox
+    assert "mosaic_batch1_extracted_claims.csv" in inbox
+    recommended_section = inbox.split("## Recommended Mosaic Registration Batch", 1)[1].split("## Sources Needing Registration", 1)[0]
+    assert "mosaic_batch1_extracted_claims.csv` path=" not in recommended_section
+
+
+def test_mosaic_plan_uses_next_chronological_batch_without_support_mapping(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    packets = archive / "mosaic_source_packets"
+    packets.mkdir()
+    for number in range(1, 6):
+        (packets / f"SRC-MOSAIC-{number:04d}.md").write_text(f"source packet {number}", encoding="utf-8")
+    (archive / "mosaic_source_packet_manifest.csv").write_text(
+        "source_id,path\n" + "\n".join(f"SRC-MOSAIC-{number:04d},mosaic_source_packets/SRC-MOSAIC-{number:04d}.md" for number in range(1, 6)) + "\n",
+        encoding="utf-8",
+    )
+
+    report = run_corpus_etl(archive_root=archive, corpus="mosaic", mode="plan", project_dir=tmp_path, run_id="mosaic_chronological")
+    batch = report["recommended_registration_batches"][0]
+
+    assert batch["batch_id"] == "mosaic_next_chronological_registration"
+    assert batch["selection_reason"] == "next chronological packet batch"
+    assert [packet["source_id"] for packet in batch["source_packets"]] == [
+        "SRC-MOSAIC-0001",
+        "SRC-MOSAIC-0002",
+        "SRC-MOSAIC-0003",
+        "SRC-MOSAIC-0004",
+        "SRC-MOSAIC-0005",
+    ]
+
+
 def test_background_safe_refuses_future_modes_without_mutation(tmp_path: Path) -> None:
     archive = _archive(tmp_path)
     (archive / "source.md").write_text("sample", encoding="utf-8")
@@ -254,3 +324,43 @@ def _archive(tmp_path: Path) -> Path:
 
 def _role_bucket(candidate: dict[str, object]) -> tuple[object, object]:
     return candidate["file_role"], candidate["review_bucket"]
+
+
+def _mosaic_planning_archive(tmp_path: Path) -> Path:
+    archive = _archive(tmp_path)
+    packets = archive / "mosaic_source_packets"
+    packets.mkdir()
+    for number in range(1, 6):
+        (packets / f"SRC-MOSAIC-{number:04d}.md").write_text(f"source packet {number}", encoding="utf-8")
+    (archive / "mosaic_source_packet_manifest.csv").write_text(
+        "\n".join(
+            [
+                "source_id,path,title,url",
+                *[
+                    f"SRC-MOSAIC-{number:04d},mosaic_source_packets/SRC-MOSAIC-{number:04d}.md,Sermon {number},https://example.test/{number}"
+                    for number in range(1, 6)
+                ],
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (archive / "mosaic_batch1_source_triage_rows.csv").write_text(
+        "\n".join(
+            [
+                "source_id,triage_status,notes",
+                "SRC-MOSAIC-0001,ready,batch 1",
+                "SRC-MOSAIC-0002,ready,batch 1",
+                "SRC-MOSAIC-0003,ready,batch 1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (archive / "mosaic_streams_index.csv").write_text("source_id,stream_url\nSRC-MOSAIC-0001,https://example.test/stream\n", encoding="utf-8")
+    batches = archive / "input_batches" / "batches_CSVs"
+    batches.mkdir(parents=True)
+    (batches / "mosaic_batch1_extracted_claims.csv").write_text("claim_id,claim_text\nC1,Claim\n", encoding="utf-8")
+    (batches / "mosaic_batch1_criteria_matrix.csv").write_text("criteria_id,value\nCR1,Value\n", encoding="utf-8")
+    (batches / "mosaic_batch1_proposed_updates.csv").write_text("proposal_id,value\nP1,Value\n", encoding="utf-8")
+    return archive
