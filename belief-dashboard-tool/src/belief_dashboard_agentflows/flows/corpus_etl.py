@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import fnmatch
 import json
 import subprocess
 from datetime import datetime
@@ -52,6 +53,8 @@ CANDIDATE_FIELDS = [
     "registered_match_status",
     "registered_source_id",
     "registered_match_reason",
+    "file_role",
+    "review_bucket",
     "cluster_suggestion",
     "source_role_suggestion",
     "recommended_action",
@@ -162,7 +165,7 @@ def run_corpus_etl(
 
     counts = _counts(candidates, unsupported_files, prophecy_exclusions, errors, warnings)
     recommendations = _recommended_next_batches(corpus, candidates, existing_state, mode)
-    review_inbox = _human_review_inbox(candidates, existing_state, recommendations) if mode == "review-pack" and not refusal_reason else []
+    review_inbox = _human_review_inbox(candidates, unsupported_files, existing_state, recommendations) if mode == "review-pack" and not refusal_reason else []
     next_safe_steps = _next_safe_steps(status, mode, bool(archive_root), refusal_reason=refusal_reason)
     report: dict[str, Any] = {
         "title": "Corpus ETL Report",
@@ -263,6 +266,14 @@ def render_corpus_etl_markdown(report: dict[str, Any]) -> str:
             f"- Unsupported files: `{counts.get('unsupported_files', 0)}`",
             f"- Prophecy-excluded files: `{counts.get('prophecy_excluded', 0)}`",
             "",
+            "## Review Bucket Counts",
+            "",
+            *_count_lines(counts.get("review_bucket_counts", {})),
+            "",
+            "## File Role Counts",
+            "",
+            *_count_lines(counts.get("file_role_counts", {})),
+            "",
             "## Existing Generated Batches",
             "",
             *_batch_lines(existing.get("generated_batches", [])),
@@ -348,29 +359,29 @@ def render_human_review_inbox(report: dict[str, Any]) -> str:
         f"- Unregistered candidates: `{report.get('counts', {}).get('unregistered_candidates', 0)}`",
         f"- Likely duplicate candidates: `{len([c for c in report.get('candidate_sources', []) if c.get('duplicate_risk') == 'possible'])}`",
         "",
-        "## Batches Ready For Human Review",
-        "",
-        *_inbox_lines([item for item in report.get("human_review_inbox", []) if item.get("bucket") == "batches_ready_for_human_review"]),
-        "",
-        "## Batches Needing Repair",
-        "",
-        *_inbox_lines([item for item in report.get("human_review_inbox", []) if item.get("bucket") == "batches_needing_repair"]),
-        "",
-        "## Batches Ready For Real Append Only After Confirmation",
-        "",
-        *_inbox_lines([item for item in report.get("human_review_inbox", []) if item.get("bucket") == "append_after_confirmation"]),
-        "",
-        "## Proposals Awaiting Review",
-        "",
-        *_proposal_lines(report.get("existing_state", {}).get("proposals_awaiting_review", [])),
-        "",
-        "## Sources Ready For Extraction",
-        "",
-        *_candidate_lines([item for item in report.get("candidate_sources", []) if item.get("registered_match_status") == "matched"]),
-        "",
         "## Sources Needing Registration",
         "",
-        *_candidate_lines([item for item in report.get("candidate_sources", []) if item.get("registered_match_status") == "unmatched"][:50]),
+        *_inbox_lines(_inbox_bucket(report, "sources_needing_registration")),
+        "",
+        "## Artifacts Available For Validation",
+        "",
+        *_inbox_lines(_inbox_bucket(report, "artifacts_available_for_validation")),
+        "",
+        "## Manifests/Indexes Available For Planning",
+        "",
+        *_inbox_lines(_inbox_bucket(report, "manifests_available_for_planning")),
+        "",
+        "## Support Files Detected",
+        "",
+        *_inbox_lines(_inbox_bucket(report, "support_files_detected")),
+        "",
+        "## Unknown / Needs Manual Review",
+        "",
+        *_inbox_lines(_inbox_bucket(report, "unknown_review_needed")),
+        "",
+        "## Unsupported / Ignored",
+        "",
+        *_inbox_lines(_inbox_bucket(report, "unsupported_or_ignored")),
         "",
         "## Likely Duplicate Candidates",
         "",
@@ -399,13 +410,130 @@ def _match_registered(candidates: list[dict[str, Any]], sources: list[dict[str, 
         candidate["registered_source_id"] = match.get("source_id", "") if match else ""
         candidate["registered_match_reason"] = match.get("_match_reason", "") if match else ""
         candidate["duplicate_risk"] = "possible" if match else "low"
-        if match:
-            candidate["recommended_action"] = "already registered; inspect existing source state before extraction"
-            candidate["recommended_next_action"] = "use existing source ID and guarded packet/workspace commands"
-        else:
-            candidate["recommended_action"] = "needs human review before registration"
-            candidate["recommended_next_action"] = "register selected source through existing guarded workflow"
+        _classify_candidate(candidate, matched=bool(match))
     return candidates
+
+
+def _classify_candidate(candidate: dict[str, Any], *, matched: bool) -> None:
+    role, bucket, action, next_action = _candidate_role(candidate, matched=matched)
+    candidate["file_role"] = role
+    candidate["review_bucket"] = bucket
+    candidate["recommended_action"] = action
+    candidate["recommended_next_action"] = next_action
+
+
+def _candidate_role(candidate: dict[str, Any], *, matched: bool) -> tuple[str, str, str, str]:
+    rel = str(candidate.get("relative_path", "")).replace("\\", "/")
+    rel_lower = rel.lower()
+    name_lower = str(candidate.get("name", "")).lower()
+    extension = str(candidate.get("file_extension", "")).lower()
+    corpus = str(candidate.get("corpus", "")).lower()
+
+    if matched:
+        return (
+            "registerable_source",
+            "sources_ready_for_extraction",
+            "already registered; inspect existing source state before extraction",
+            "use existing source ID and guarded packet/workspace commands",
+        )
+
+    if _is_mosaic_source_packet(rel_lower):
+        return (
+            "registerable_source",
+            "sources_needing_registration",
+            "register as Mosaic sermon source packet through guarded registration workflow",
+            "register selected source through existing guarded workflow",
+        )
+
+    if _matches_any(name_lower, ("*_extracted_claims.csv", "*_criteria_matrix.csv", "*_proposed_updates.csv")):
+        return (
+            "processing_artifact",
+            "artifacts_available_for_validation",
+            "validate/clean/import only through existing guarded manual-import workflow; do not register as a source",
+            "validate artifact through existing guarded manual-import workflow",
+        )
+
+    if _matches_any(name_lower, ("*manifest*.csv", "*manifest*.md", "*streams_index*.csv", "*stream_urls*.txt", "*source_registry_seed*.csv")):
+        return (
+            "manifest_or_index",
+            "manifests_available_for_planning",
+            "use for planning/source mapping; do not register as source unless explicitly reviewed",
+            "use for planning/source mapping only",
+        )
+
+    if _matches_any(name_lower, ("*source_triage_rows*.csv",)):
+        return (
+            "batch_support",
+            "support_files_detected",
+            "use as batch support; do not register directly as source unless explicitly reviewed",
+            "review as batch support only",
+        )
+
+    if rel_lower.startswith("input_batches/") or "/input_batches/" in rel_lower:
+        return (
+            "batch_support",
+            "support_files_detected",
+            "use as batch support; do not register directly as source unless explicitly reviewed",
+            "review as batch support only",
+        )
+
+    if name_lower in {"combined_youtube_watchlist.md", "combined_youtube_transcript_input.csv", "combined_youtube_all_entries.csv"}:
+        return (
+            "manifest_or_index",
+            "manifests_available_for_planning",
+            "use for planning/source mapping; do not register as source unless explicitly reviewed",
+            "use for planning/source mapping only",
+        )
+
+    if "dan" in rel_lower and "mcclellan" in rel_lower and ("watch_history" in rel_lower or "watch history" in rel_lower or "titles" in rel_lower):
+        return (
+            "manifest_or_index",
+            "manifests_available_for_planning",
+            "use for planning/source mapping; do not register as source unless explicitly reviewed",
+            "use for planning/source mapping only",
+        )
+
+    if extension in {".md", ".txt"}:
+        action = "needs human review before registration"
+        if corpus == "mosaic":
+            action = "register as Mosaic sermon source packet through guarded registration workflow"
+        return (
+            "registerable_source",
+            "sources_needing_registration",
+            action,
+            "register selected source through existing guarded workflow",
+        )
+
+    if candidate.get("is_metadata_only"):
+        return (
+            "metadata_only",
+            "unknown_review_needed",
+            "metadata only; inspect manually before any registration decision",
+            "inspect metadata and decide whether a source document is available",
+        )
+
+    if extension in {".csv", ".json", ".jsonl"}:
+        return (
+            "manifest_or_index",
+            "manifests_available_for_planning",
+            "use for planning/source mapping; do not register as source unless explicitly reviewed",
+            "use for planning/source mapping only",
+        )
+
+    return (
+        "unknown_review_needed",
+        "unknown_review_needed",
+        "needs manual review before any source registration decision",
+        "inspect manually before selecting a guarded workflow",
+    )
+
+
+def _is_mosaic_source_packet(relative_path: str) -> bool:
+    return fnmatch.fnmatch(relative_path, "*/mosaic_source_packets/src-mosaic-*.md") or fnmatch.fnmatch(relative_path, "mosaic_source_packets/src-mosaic-*.md")
+
+
+def _matches_any(value: str, patterns: tuple[str, ...]) -> bool:
+    return any(fnmatch.fnmatch(value, pattern) for pattern in patterns)
 
 
 def _registered_match(candidate: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -477,8 +605,13 @@ def _counts(
     prophecy_exclusions: list[dict[str, Any]],
     errors: list[str],
     warnings: list[str],
-) -> dict[str, int]:
+) -> dict[str, Any]:
     already_registered = len([item for item in candidates if item.get("registered_match_status") == "matched"])
+    review_bucket_counts = _value_counts(candidates, "review_bucket")
+    file_role_counts = _value_counts(candidates, "file_role")
+    if unsupported_files:
+        review_bucket_counts["unsupported_or_ignored"] = review_bucket_counts.get("unsupported_or_ignored", 0) + len(unsupported_files)
+        file_role_counts["unsupported_or_ignored"] = file_role_counts.get("unsupported_or_ignored", 0) + len(unsupported_files)
     return {
         "candidate_files": len(candidates),
         "supported_text_files": len([item for item in candidates if item.get("is_supported_text")]),
@@ -490,6 +623,8 @@ def _counts(
         "prophecy_excluded": len(prophecy_exclusions),
         "errors": len(errors),
         "warnings": len(warnings),
+        "review_bucket_counts": review_bucket_counts,
+        "file_role_counts": file_role_counts,
     }
 
 
@@ -510,7 +645,7 @@ def _recommended_next_batches(
                 "recommended_action": f"repair {repair_count} failed or blocked validation/QA item(s) before new append consideration",
             }
         )
-    unregistered = [item for item in candidates if item.get("registered_match_status") == "unmatched"]
+    unregistered = [item for item in candidates if item.get("review_bucket") == "sources_needing_registration"]
     if unregistered:
         recommendations.append(
             {
@@ -544,6 +679,7 @@ def _recommended_next_batches(
 
 def _human_review_inbox(
     candidates: list[dict[str, Any]],
+    unsupported_files: list[dict[str, Any]],
     existing_state: dict[str, Any],
     recommendations: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -565,17 +701,31 @@ def _human_review_inbox(
                 "recommended_action": action,
             }
         )
-    for item in candidates[:50]:
-        if item.get("registered_match_status") == "unmatched":
-            inbox.append(
-                {
-                    "bucket": "sources_needing_registration",
-                    "label": item.get("detected_title", item.get("name", "")),
-                    "path": item.get("relative_path", ""),
-                    "state": "unregistered",
-                    "recommended_action": "human decides whether to register this source",
-                }
-            )
+    for item in candidates[:100]:
+        bucket = item.get("review_bucket", "unknown_review_needed")
+        if bucket == "sources_ready_for_extraction":
+            continue
+        inbox.append(
+            {
+                "bucket": bucket,
+                "file_role": item.get("file_role", "unknown_review_needed"),
+                "label": item.get("detected_title", item.get("name", "")),
+                "path": item.get("relative_path", ""),
+                "state": item.get("registered_match_status", ""),
+                "recommended_action": item.get("recommended_action", ""),
+            }
+        )
+    for item in unsupported_files[:100]:
+        inbox.append(
+            {
+                "bucket": "unsupported_or_ignored",
+                "file_role": "unsupported_or_ignored",
+                "label": item.get("name", ""),
+                "path": item.get("relative_path", ""),
+                "state": item.get("reason", "unsupported_file_type"),
+                "recommended_action": "unsupported file type ignored by corpus-etl; do not register directly as source unless explicitly reviewed",
+            }
+        )
     for recommendation in recommendations:
         inbox.append(
             {
@@ -594,6 +744,24 @@ def _json_payload(report: dict[str, Any]) -> dict[str, Any]:
     payload.pop("candidate_sources", None)
     payload["output_files"] = report.get("output_files", {})
     return payload
+
+
+def _value_counts(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = str(item.get(key) or "unknown_review_needed")
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _count_lines(counts: dict[str, int]) -> list[str]:
+    if not counts:
+        return ["- None"]
+    return [f"- {key}: `{value}`" for key, value in sorted(counts.items())]
+
+
+def _inbox_bucket(report: dict[str, Any], bucket: str) -> list[dict[str, Any]]:
+    return [item for item in report.get("human_review_inbox", []) if item.get("bucket") == bucket]
 
 
 def _run_output_dir(output_root: Path, *, corpus: str, mode: str, run_id: str | None, overwrite: bool) -> Path:

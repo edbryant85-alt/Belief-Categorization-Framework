@@ -113,6 +113,70 @@ def test_review_pack_writes_human_review_inbox(tmp_path: Path) -> None:
     assert "Sources Needing Registration" in inbox.read_text(encoding="utf-8")
 
 
+def test_mosaic_candidate_file_roles_and_review_buckets(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    packets = archive / "mosaic_source_packets"
+    packets.mkdir()
+    (packets / "SRC-MOSAIC-0001.md").write_text("source packet", encoding="utf-8")
+    (archive / "mosaic_batch1_extracted_claims.csv").write_text("claim_id,claim_text\n", encoding="utf-8")
+    (archive / "mosaic_batch1_criteria_matrix.csv").write_text("criteria_id,value\n", encoding="utf-8")
+    (archive / "mosaic_batch1_proposed_updates.csv").write_text("proposal_id,value\n", encoding="utf-8")
+    (archive / "mosaic_source_packet_manifest.csv").write_text("source_id,path\n", encoding="utf-8")
+    (archive / "mosaic_stream_urls_076_125.txt").write_text("https://example.test/watch\n", encoding="utf-8")
+    (archive / "mosaic_batch1_source_triage_rows.csv").write_text("source_id,status\n", encoding="utf-8")
+
+    report = run_corpus_etl(archive_root=archive, corpus="mosaic", mode="review-pack", project_dir=tmp_path, run_id="mosaic_roles")
+    by_path = {row["relative_path"]: row for row in report["candidate_sources"]}
+
+    assert _role_bucket(by_path["mosaic_source_packets/SRC-MOSAIC-0001.md"]) == ("registerable_source", "sources_needing_registration")
+    assert _role_bucket(by_path["mosaic_batch1_extracted_claims.csv"]) == ("processing_artifact", "artifacts_available_for_validation")
+    assert _role_bucket(by_path["mosaic_batch1_criteria_matrix.csv"]) == ("processing_artifact", "artifacts_available_for_validation")
+    assert _role_bucket(by_path["mosaic_batch1_proposed_updates.csv"]) == ("processing_artifact", "artifacts_available_for_validation")
+    assert _role_bucket(by_path["mosaic_source_packet_manifest.csv"]) == ("manifest_or_index", "manifests_available_for_planning")
+    assert by_path["mosaic_stream_urls_076_125.txt"]["review_bucket"] in {"manifests_available_for_planning", "support_files_detected"}
+    assert by_path["mosaic_stream_urls_076_125.txt"]["review_bucket"] != "sources_needing_registration"
+    assert _role_bucket(by_path["mosaic_batch1_source_triage_rows.csv"]) == ("batch_support", "support_files_detected")
+
+
+def test_review_pack_groups_candidates_by_review_bucket(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    packets = archive / "mosaic_source_packets"
+    packets.mkdir()
+    (packets / "SRC-MOSAIC-0001.md").write_text("source packet", encoding="utf-8")
+    (archive / "mosaic_batch1_extracted_claims.csv").write_text("claim_id,claim_text\n", encoding="utf-8")
+    (archive / "mosaic_source_packet_manifest.csv").write_text("source_id,path\n", encoding="utf-8")
+    (archive / "mosaic_batch1_source_triage_rows.csv").write_text("source_id,status\n", encoding="utf-8")
+
+    report = run_corpus_etl(archive_root=archive, corpus="mosaic", mode="review-pack", project_dir=tmp_path, run_id="mosaic_inbox")
+    inbox = Path(report["output_files"]["human_review_inbox"]).read_text(encoding="utf-8")
+
+    assert "## Sources Needing Registration" in inbox
+    assert "## Artifacts Available For Validation" in inbox
+    assert "## Manifests/Indexes Available For Planning" in inbox
+    assert "## Support Files Detected" in inbox
+    assert "## Unknown / Needs Manual Review" in inbox
+    assert "## Unsupported / Ignored" in inbox
+    sources_section = inbox.split("## Sources Needing Registration", 1)[1].split("## Artifacts Available For Validation", 1)[0]
+    assert "SRC-MOSAIC-0001" in sources_section
+    assert "extracted_claims" not in sources_section
+
+
+def test_json_report_includes_review_bucket_counts(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    packets = archive / "mosaic_source_packets"
+    packets.mkdir()
+    (packets / "SRC-MOSAIC-0001.md").write_text("source packet", encoding="utf-8")
+    (archive / "mosaic_batch1_extracted_claims.csv").write_text("claim_id,claim_text\n", encoding="utf-8")
+
+    report = run_corpus_etl(archive_root=archive, corpus="mosaic", mode="review-pack", project_dir=tmp_path, run_id="mosaic_counts")
+    payload = json.loads(Path(report["output_files"]["json_report"]).read_text(encoding="utf-8"))
+
+    assert payload["counts"]["review_bucket_counts"]["sources_needing_registration"] == 1
+    assert payload["counts"]["review_bucket_counts"]["artifacts_available_for_validation"] == 1
+    assert payload["counts"]["file_role_counts"]["registerable_source"] == 1
+    assert payload["counts"]["file_role_counts"]["processing_artifact"] == 1
+
+
 def test_background_safe_refuses_future_modes_without_mutation(tmp_path: Path) -> None:
     archive = _archive(tmp_path)
     (archive / "source.md").write_text("sample", encoding="utf-8")
@@ -186,3 +250,7 @@ def _archive(tmp_path: Path) -> Path:
     archive = tmp_path / "archive"
     archive.mkdir(exist_ok=True)
     return archive
+
+
+def _role_bucket(candidate: dict[str, object]) -> tuple[object, object]:
+    return candidate["file_role"], candidate["review_bucket"]
